@@ -1,0 +1,10 @@
+.vscode/**
+.vscode-test/**
+tests/**
+scripts/**
+node_modules/**
+.gitignore
+.venv/**
+**/*.vsix
+package-lock.json
+install.ps1

@@ -1,0 +1,62 @@
+{
+  "name": "typst-buddy",
+  "displayName": "Typst Buddy",
+  "description": "为 Typst 行上注注文、#snt 译文/拼音，以及 #py 拼音着色",
+  "version": "1.0.0",
+  "publisher": "local",
+  "author": "ah21",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Themes"
+  ],
+  "keywords": [
+    "typst",
+    "tinymist",
+    "syntax",
+    "highlight",
+    "snt",
+    "注疏"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:typst"
+  ],
+  "contributes": {
+    "grammars": [
+      {
+        "scopeName": "typst-note.injection",
+        "path": "./syntaxes/note.injection.json",
+        "injectTo": [
+          "source.typst"
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "Typst Buddy",
+      "properties": {
+        "typstBuddy.foreground": {
+          "type": "string",
+          "format": "color",
+          "default": "#68559E",
+          "description": "注文、#snt 译文/拼音与 #py 拼音的前景色。修改后自动应用到编辑器高亮。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node scripts/run-tests.mjs",
+    "test:begin": "node scripts/check-begin.mjs",
+    "test:grammar": "node scripts/test-grammar.mjs",
+    "package": "npx --yes @vscode/vsce package --allow-missing-repository --skip-license --baseContentUrl https://example.local/typst-buddy --baseImagesUrl https://example.local/typst-buddy",
+    "install:ext": "powershell -NoProfile -ExecutionPolicy Bypass -File ./install.ps1"
+  },
+  "devDependencies": {
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.2.0"
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "scopeName": "typst-note.injection",
+  "injectionSelector": "L:source.typst",
+  "patterns": [
+    {
+      "include": "#snt-call"
+    },
+    {
+      "include": "#note-call"
+    }
+  ],
+  "repository": {
+    "nested-brackets": {
+      "begin": "\\[",
+      "end": "\\]",
+      "applyEndPatternLast": true,
+      "patterns": [
+        {
+          "include": "#nested-brackets"
+        }
+      ]
+    },
+    "note-call": {
+      "name": "meta.note.call.typst",
+      "begin": "(#)((?:ntw|ntc|ntj|upnote|ncs|ncx|ncd|nch|ngs|ngx|ngd|ngh|nt|py)\\b)(?:\\((?:[^()]|\\([^()]*\\))*\\))?\\[",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.hash.note.typst"
+        },
+        "2": {
+          "name": "entity.name.function.note.typst"
+        }
+      },
+      "end": "\\](?![ \\t]*\\[)",
+      "applyEndPatternLast": true,
+      "patterns": [
+        {
+          "include": "#secondary-same-line"
+        },
+        {
+          "include": "#nested-brackets"
+        }
+      ]
+    },
+    "snt-paren-args": {
+      "begin": "\\(",
+      "end": "\\)",
+      "name": "meta.snt.args.typst",
+      "patterns": [
+        {
+          "include": "#snt-paren-args"
+        },
+        {
+          "begin": "\\[",
+          "end": "\\]",
+          "applyEndPatternLast": true,
+          "name": "meta.editorial.secondary.typst",
+          "contentName": "markup.editorial.secondary.typst",
+          "patterns": [
+            {
+              "include": "#nested-brackets"
+            }
+          ]
+        }
+      ]
+    },
+    "snt-first-content": {
+      "begin": "\\[",
+      "end": "(?=\\])",
+      "applyEndPatternLast": true,
+      "patterns": [
+        {
+          "include": "#note-call"
+        },
+        {
+          "include": "#nested-brackets"
+        }
+      ]
+    },
+    "snt-call": {
+      "name": "meta.snt.call.typst",
+      "begin": "(#)(snt)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.hash.snt.typst"
+        },
+        "2": {
+          "name": "entity.name.function.snt.typst"
+        }
+      },
+      "end": "\\](?![ \\t]*\\[)",
+      "applyEndPatternLast": true,
+      "patterns": [
+        {
+          "include": "#snt-paren-args"
+        },
+        {
+          "include": "#secondary-same-line"
+        },
+        {
+          "include": "#secondary-cross-line"
+        },
+        {
+          "include": "#snt-first-content"
+        },
+        {
+          "include": "#note-call"
+        }
+      ]
+    },
+    "secondary-same-line": {
+      "begin": "\\][ \\t]*\\[",
+      "beginCaptures": {
+        "0": {
+          "name": "meta.editorial.arg-separator.typst"
+        }
+      },
+      "end": "(?=\\][ \\t]*\\[)|(?=\\](?![ \\t]*\\[))|(?=\\][ \\t]*$)",
+      "applyEndPatternLast": true,
+      "name": "meta.editorial.secondary.typst",
+      "contentName": "markup.editorial.secondary.typst",
+      "patterns": [
+        {
+          "include": "#note-call"
+        },
+        {
+          "include": "#nested-brackets"
+        }
+      ]
+    },
+    "secondary-cross-line": {
+      "begin": "\\][ \\t]*$",
+      "beginCaptures": {
+        "0": {
+          "name": "meta.editorial.arg-separator.typst"
+        }
+      },
+      "end": "(?=\\](?![ \\t]*\\[))|(?=\\][ \\t]*$)|(?=\\][ \\t]*\\[)",
+      "applyEndPatternLast": true,
+      "patterns": [
+        {
+          "begin": "^[ \\t]*\\[",
+          "end": "(?=\\])",
+          "applyEndPatternLast": true,
+          "name": "meta.editorial.secondary.typst",
+          "contentName": "markup.editorial.secondary.typst",
+          "patterns": [
+            {
+              "include": "#note-call"
+            },
+            {
+              "include": "#nested-brackets"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
