@@ -1,8 +1,8 @@
 {
   "name": "typst-buddy",
   "displayName": "Typst Buddy",
-  "description": "团队内部工具。为 Typst 排版文档中的 #snt / #nt / #py 着色，并提供随文注释的加注与去注。本扩展依赖 Tinymist。",
-  "version": "0.0.2",
+  "description": "团队内部工具。为 Typst / Tinymist 正文、注释、译文、拼音集成排版宏中的各个部分单独着色，并提供便捷操作命令。本扩展依赖 Tinymist。",
+  "version": "0.0.4",
   "publisher": "HuangFusyong",
   "author": "ah21",
   "license": "MIT",
@@ -20,7 +20,7 @@
     "syntax",
     "highlight",
     "snt",
-    "注疏"
+    "注释"
   ],
   "main": "./out/extension.js",
   "activationEvents": [
@@ -50,17 +50,42 @@
     "commands": [
       {
         "command": "typstBuddy.addNote",
-        "title": "加注",
+        "title": "add note 加注",
         "category": "Typst Buddy"
       },
       {
         "command": "typstBuddy.removeNote",
-        "title": "去注",
+        "title": "clear notes 去注",
         "category": "Typst Buddy"
       },
       {
         "command": "typstBuddy.noteShortcut",
-        "title": "加注 / 去注",
+        "title": "add note or clear notes 加注 / 去注",
+        "category": "Typst Buddy"
+      },
+      {
+        "command": "typstBuddy.gotoPair",
+        "title": "go to pair 跳转到对应注文 / 轻锚点",
+        "category": "Typst Buddy"
+      },
+      {
+        "command": "typstBuddy.splitSnt",
+        "title": "split snt 拆分 #snt",
+        "category": "Typst Buddy"
+      },
+      {
+        "command": "typstBuddy.mergeSnt",
+        "title": "merge snt 合并 #snt",
+        "category": "Typst Buddy"
+      },
+      {
+        "command": "typstBuddy.extractNtpBody",
+        "title": "collect body 收集正文",
+        "category": "Typst Buddy"
+      },
+      {
+        "command": "typstBuddy._revealOffset",
+        "title": "reveal offset",
         "category": "Typst Buddy"
       }
     ],
@@ -69,6 +94,12 @@
         "command": "typstBuddy.noteShortcut",
         "key": "ctrl+shift+n",
         "mac": "ctrl+shift+n",
+        "when": "editorTextFocus && editorLangId == 'typst'"
+      },
+      {
+        "command": "typstBuddy.gotoPair",
+        "key": "ctrl+shift+j",
+        "mac": "ctrl+shift+j",
         "when": "editorTextFocus && editorLangId == 'typst'"
       }
     ],
@@ -83,6 +114,26 @@
           "command": "typstBuddy.removeNote",
           "when": "editorLangId == 'typst'",
           "group": "1_modification@11"
+        },
+        {
+          "command": "typstBuddy.splitSnt",
+          "when": "editorLangId == 'typst'",
+          "group": "1_modification@12"
+        },
+        {
+          "command": "typstBuddy.mergeSnt",
+          "when": "editorLangId == 'typst'",
+          "group": "1_modification@13"
+        },
+        {
+          "command": "typstBuddy.extractNtpBody",
+          "when": "editorLangId == 'typst'",
+          "group": "1_modification@14"
+        },
+        {
+          "command": "typstBuddy.gotoPair",
+          "when": "editorLangId == 'typst'",
+          "group": "navigation@10"
         }
       ],
       "commandPalette": [
@@ -95,7 +146,27 @@
           "when": "editorLangId == 'typst'"
         },
         {
+          "command": "typstBuddy.gotoPair",
+          "when": "editorLangId == 'typst'"
+        },
+        {
+          "command": "typstBuddy.splitSnt",
+          "when": "editorLangId == 'typst'"
+        },
+        {
+          "command": "typstBuddy.mergeSnt",
+          "when": "editorLangId == 'typst'"
+        },
+        {
+          "command": "typstBuddy.extractNtpBody",
+          "when": "editorLangId == 'typst'"
+        },
+        {
           "command": "typstBuddy.noteShortcut",
+          "when": "false"
+        },
+        {
+          "command": "typstBuddy._revealOffset",
           "when": "false"
         }
       ]
@@ -103,16 +174,20 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
+    "clean": "node scripts/clean.mjs",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
     "pretest": "npm run compile",
     "test": "node scripts/run-tests.mjs",
     "test:begin": "node scripts/check-begin.mjs",
     "test:grammar": "node scripts/test-grammar.mjs",
     "test:snt": "node scripts/test-snt-edit.mjs",
-    "package": "npx --yes @vscode/vsce package --allow-missing-repository --skip-license --baseContentUrl https://example.local/typst-buddy --baseImagesUrl https://example.local/typst-buddy",
-    "install:ext": "npm run compile && powershell -NoProfile -ExecutionPolicy Bypass -File ./install.ps1"
+    "test:snt-nav": "node scripts/test-snt-nav.mjs",
+    "test:ntp": "node scripts/test-ntp-extract.mjs",
+    "check": "npm run lint && npm test",
+    "package": "npx --yes @vscode/vsce package --allow-missing-repository --skip-license --baseContentUrl https://example.local/typst-buddy --baseImagesUrl https://example.local/typst-buddy"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",

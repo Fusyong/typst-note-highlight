@@ -8,7 +8,6 @@ node_modules/**
 .venv/**
 **/*.vsix
 package-lock.json
-install.ps1
 tsconfig.json
 eslint.config.mjs
 **/*.map

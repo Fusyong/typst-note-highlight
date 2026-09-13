@@ -81,11 +81,11 @@ export function applyEdits(
   return { text: result, selectionStart, selectionEnd };
 }
 
-function fail(error: string): EditFail {
+export function fail(error: string): EditFail {
   return { ok: false, error };
 }
 
-function succeed(text: string, edits: TextEdit[]): EditOk {
+export function succeed(text: string, edits: TextEdit[]): EditOk {
   const applied = applyEdits(text, edits);
   return {
     ok: true,

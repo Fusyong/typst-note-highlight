@@ -3,7 +3,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const scripts = ["check-begin.mjs", "test-grammar.mjs", "test-snt-edit.mjs"];
+const scripts = [
+  "check-begin.mjs",
+  "test-grammar.mjs",
+  "test-snt-edit.mjs",
+  "test-snt-nav.mjs",
+  "test-ntp-extract.mjs",
+];
 
 let failed = false;
 for (const name of scripts) {

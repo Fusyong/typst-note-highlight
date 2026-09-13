@@ -206,13 +206,28 @@ function matchNameAt(text: string, i: number, names: readonly string[]): string 
   return null;
 }
 
-/** 从 `#` 解析一枚 #nt* 调用（不含 #py）。 */
-export function parseNoteCall(text: string, hashIndex: number): NoteCall | null {
+/** 若位于行注释或块注释开头，返回注释结束后的下标，否则返回原下标。 */
+export function skipComment(text: string, i: number): number {
+  if (text[i] === "/" && text[i + 1] === "/" && text[i - 1] !== ":") {
+    return skipLineComment(text, i);
+  }
+  if (text[i] === "/" && text[i + 1] === "*") {
+    return skipBlockComment(text, i);
+  }
+  return i;
+}
+
+/** 从 `#` 解析一枚 #nt* 调用（默认不含 #py）。 */
+export function parseNoteCall(
+  text: string,
+  hashIndex: number,
+  names: readonly string[] = NOTE_NAMES,
+): NoteCall | null {
   if (text[hashIndex] !== "#") {
     return null;
   }
   let i = hashIndex + 1;
-  const name = matchNameAt(text, i, NOTE_NAMES);
+  const name = matchNameAt(text, i, names);
   if (!name) {
     return null;
   }
@@ -440,6 +455,74 @@ export function parseSntCall(text: string, hashIndex: number): SntCall | null {
     notes,
     blocks,
   };
+}
+
+export interface NtpCall {
+  start: number;
+  end: number;
+  body: ContentSpan;
+}
+
+export function parseNtpCall(text: string, hashIndex: number): NtpCall | null {
+  if (!text.startsWith("#ntp", hashIndex)) {
+    return null;
+  }
+  if (isIdentChar(text[hashIndex + 4])) {
+    return null;
+  }
+  let i = skipTrivia(text, hashIndex + 4);
+  if (text[i] === "(") {
+    const end = matchBalanced(text, i);
+    if (end < 0) {
+      return null;
+    }
+    i = end;
+  }
+  i = skipTrivia(text, i);
+  if (text[i] !== "[") {
+    return null;
+  }
+  const end = matchBalanced(text, i);
+  if (end < 0) {
+    return null;
+  }
+  return {
+    start: hashIndex,
+    end,
+    body: {
+      start: i,
+      end,
+      innerStart: i + 1,
+      innerEnd: end - 1,
+    },
+  };
+}
+
+export function findNtpCalls(text: string): NtpCall[] {
+  const out: NtpCall[] = [];
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const j = skipTrivia(text, i);
+    if (j > i) {
+      i = j;
+      continue;
+    }
+    if (text[i] === '"') {
+      i = skipString(text, i);
+      continue;
+    }
+    if (text[i] === "#" && text.startsWith("#ntp", i) && !isIdentChar(text[i + 4])) {
+      const call = parseNtpCall(text, i);
+      if (call) {
+        out.push(call);
+        i = call.end;
+        continue;
+      }
+    }
+    i += 1;
+  }
+  return out;
 }
 
 export function findSntCalls(text: string): SntCall[] {
