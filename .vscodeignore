@@ -1,5 +1,6 @@
 .vscode/**
 .vscode-test/**
+src/**
 tests/**
 scripts/**
 node_modules/**
@@ -8,3 +9,7 @@ node_modules/**
 **/*.vsix
 package-lock.json
 install.ps1
+tsconfig.json
+eslint.config.mjs
+**/*.map
+**/*.ts

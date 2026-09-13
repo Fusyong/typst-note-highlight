@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   将 typst-note-highlight 安装到 Cursor / VS Code 扩展目录。
@@ -10,6 +10,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 $src = $PSScriptRoot
+Push-Location $src
+try {
+  npm run compile
+  if ($LASTEXITCODE -ne 0) {
+    throw "npm run compile 失败"
+  }
+} finally {
+  Pop-Location
+}
 $pkg = Get-Content (Join-Path $src "package.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 $folderName = "{0}.{1}-{2}" -f $pkg.publisher, $pkg.name, $pkg.version
 
@@ -42,13 +51,18 @@ foreach ($root in $destRoots) {
 
   $dest = Join-Path $root $folderName
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
-  foreach ($name in @("package.json", "README.md", "CHANGELOG.md", "LICENSE", "extension.js")) {
+  foreach ($name in @("package.json", "README.md", "CHANGELOG.md", "LICENSE")) {
     $from = Join-Path $src $name
     if (Test-Path -LiteralPath $from) {
       Copy-Item -Path $from -Destination $dest -Force
     }
   }
   Copy-Item -Path (Join-Path $src "syntaxes") -Destination $dest -Recurse -Force
+  $outDir = Join-Path $src "out"
+  if (-not (Test-Path -LiteralPath $outDir)) {
+    throw "未找到 out/。请先在仓库根目录执行 npm run compile。"
+  }
+  Copy-Item -Path $outDir -Destination $dest -Recurse -Force
   Write-Host "已安装: $dest"
 }
 

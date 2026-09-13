@@ -1,9 +1,9 @@
 {
   "name": "typst-buddy",
   "displayName": "Typst Buddy",
-  "description": "为 Typst 行上注注文、#snt 译文/拼音，以及 #py 拼音着色",
-  "version": "1.0.0",
-  "publisher": "local",
+  "description": "团队内部工具。为 Typst 排版文档中的 #snt / #nt / #py 着色，并提供随文注释的加注与去注。本扩展依赖 Tinymist。",
+  "version": "0.0.2",
+  "publisher": "HuangFusyong",
   "author": "ah21",
   "license": "MIT",
   "private": true,
@@ -22,7 +22,7 @@
     "snt",
     "注疏"
   ],
-  "main": "./extension.js",
+  "main": "./out/extension.js",
   "activationEvents": [
     "onLanguage:typst"
   ],
@@ -46,16 +46,81 @@
           "description": "注文、#snt 译文/拼音与 #py 拼音的前景色。修改后自动应用到编辑器高亮。"
         }
       }
+    },
+    "commands": [
+      {
+        "command": "typstBuddy.addNote",
+        "title": "加注",
+        "category": "Typst Buddy"
+      },
+      {
+        "command": "typstBuddy.removeNote",
+        "title": "去注",
+        "category": "Typst Buddy"
+      },
+      {
+        "command": "typstBuddy.noteShortcut",
+        "title": "加注 / 去注",
+        "category": "Typst Buddy"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "typstBuddy.noteShortcut",
+        "key": "ctrl+shift+n",
+        "mac": "ctrl+shift+n",
+        "when": "editorTextFocus && editorLangId == 'typst'"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "typstBuddy.addNote",
+          "when": "editorLangId == 'typst'",
+          "group": "1_modification@10"
+        },
+        {
+          "command": "typstBuddy.removeNote",
+          "when": "editorLangId == 'typst'",
+          "group": "1_modification@11"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "typstBuddy.addNote",
+          "when": "editorLangId == 'typst'"
+        },
+        {
+          "command": "typstBuddy.removeNote",
+          "when": "editorLangId == 'typst'"
+        },
+        {
+          "command": "typstBuddy.noteShortcut",
+          "when": "false"
+        }
+      ]
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src",
+    "pretest": "npm run compile",
     "test": "node scripts/run-tests.mjs",
     "test:begin": "node scripts/check-begin.mjs",
     "test:grammar": "node scripts/test-grammar.mjs",
+    "test:snt": "node scripts/test-snt-edit.mjs",
     "package": "npx --yes @vscode/vsce package --allow-missing-repository --skip-license --baseContentUrl https://example.local/typst-buddy --baseImagesUrl https://example.local/typst-buddy",
-    "install:ext": "powershell -NoProfile -ExecutionPolicy Bypass -File ./install.ps1"
+    "install:ext": "npm run compile && powershell -NoProfile -ExecutionPolicy Bypass -File ./install.ps1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@types/node": "^22",
+    "@types/vscode": "^1.80.0",
+    "eslint": "^9.13.0",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.0",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.2.0"
   }

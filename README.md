@@ -1,6 +1,6 @@
 # Typst Buddy
 
-为 Tinymist / Typst 源码中行上注的**注文**、`#snt` 的**译文 / 拼音**，以及 `#py` 的**拼音**单独着色。
+为 Tinymist / Typst 源码中行上注的**注文**、`#snt` 的**译文 / 拼音**，以及 `#py` 的**拼音**单独着色；并提供随文注释的加注 / 去注。
 
 ## 效果
 
@@ -61,12 +61,72 @@ npm run package
 
 扩展会在打开 `.typ` 时把该颜色同步到 `editor.tokenColorCustomizations`（工作区优先）。
 
+## 快捷操作
+
+在 `.typ` 中可用命令面板（搜 **Typst Buddy**）、编辑器右键，或快捷键。加注 / 去注会成对改动古文里的轻锚点和 `#snt(notes: …)`，一次撤销即可还原。
+
+| 命令 | 作用 |
+|------|------|
+| **Typst Buddy: 加注** | 把选中文字包成 `#nt[…]`。在古文中还会按轻锚点顺序插入空注文 `[],`；该句若还没有 `notes:` 会一并补上。加完后光标落在空的 `[]` 里，便于立刻填写。 |
+| **Typst Buddy: 去注** | 拆掉注释宏、保留被注词。古文轻锚点会同时删掉对应的 `notes` 项。 |
+
+**加注**必须先选中要注的字符串。默认宏名为 `#nt`（未分类）；已包在宏里的选区不会再套一层。译文里只加框，不动 `notes:`。拼音块不能加注。
+
+**去注**：
+
+- 无选区：删除光标所在的那一枚宏（点在 `#nt`、参数或 `[词]` 内均可）。光标落在 `notes:` 某一项里时，会连同对应的古文轻锚点一起删。
+- 有选区：删除与选区相交的完整宏（部分划到也整枚去掉）。
+- 内嵌写法 `#ntc[走][跑]` 只拆宏、丢掉内嵌注文，不改 `notes:`。
+- 两枚宏之间的缝里按下去注会提示，以免删错邻注。
+
+**快捷键** `Ctrl+Shift+N`（Typst 编辑器有焦点时；macOS 也是 Control+Shift+N，不占用 Cmd+Shift+N）：
+
+- 已选中且未碰到注释宏 → 加注
+- 光标在宏上，或选区碰到宏 → 去注
+
+也可在命令面板分别调用「加注」「去注」。此快捷键在 Typst 源码中会盖过「新建窗口」；若要改绑，打开键盘快捷方式搜索 `typstBuddy.noteShortcut`。
+
+### 计数诊断
+
+当 `#snt` 写了 `notes:` 时，扩展会核对古文轻锚点（省略第二块的 `#nt` / `#ntc` 等）与 `notes` 条数。不一致则在 `#snt` 上标错，例如「轻锚点 3 条，notes 2 条」，不必等 Typst 编译报错。未写 `notes:`、仅加框的轻锚点不诊断。
+
+## TODO
+
+- 切换注释类别（`#nt` / `#ntc` / `#ntj` / `#ntw`）
+- 跳转到对应注文 / 对应轻锚点
+- 悬停预览对应注文
+- 循环调整 `ln`、`a`
+- 内嵌注文与 `notes` 数组互转
+- 扩选到整枚宏
+- 拆分 / 合并 `#snt`
+
 ## 开发自检
+
+源码在 `src/`（TypeScript），`tsc` 编译到 `out/`。`npm test` 会先编译再跑用例。
+
+```
+src/extension.ts    激活、命令、诊断
+src/highlight.ts    着色同步到编辑器
+src/snt-parse.ts    #snt / #nt* / notes 源码解析
+src/snt-edit.ts     加注、去注、计数核对
+```
 
 ```powershell
 npm install
 npm test
+npm run lint
 ```
+
+本地调试：打开本仓库，按 **F5**（任务会先 watch 编译，再启动扩展开发主机）。
+
+安装到 Cursor / VS Code 前需已编译：
+
+```powershell
+npm run compile
+.\install.ps1
+```
+
+或 `npm run install:ext`。
 
 `tests/` 下的样张（`#snt` / `#nt*` / `#py`）即目标宏约定。
 

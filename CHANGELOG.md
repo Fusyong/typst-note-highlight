@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- 用 TypeScript 重构扩展源码（`src/` → `out/`）
+- 加注 / 去注：与 `#snt(notes: …)` 成对编辑；快捷键 `Ctrl+Shift+N`
+- `#snt` 轻锚点与 `notes` 条数不一致时给出诊断
+
 ## 1.0.0
 
 - 宏名对齐书稿约定：`#tr` → `#snt`（句下译）

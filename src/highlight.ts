@@ -1,4 +1,4 @@
-const vscode = require("vscode");
+import * as vscode from "vscode";
 
 const SCOPE_MARKERS = [
   "markup.editorial.secondary.typst",
@@ -7,10 +7,25 @@ const SCOPE_MARKERS = [
   "meta.note.annotation.typst",
 ];
 
-const DEFAULT_FOREGROUND = "#68559E";
+export const DEFAULT_FOREGROUND = "#68559E";
 
-function isOurRule(rule) {
-  if (!rule || rule.settings == null) return false;
+interface TextMateRule {
+  scope?: string | string[];
+  settings?: {
+    foreground?: string;
+    fontStyle?: string;
+  };
+}
+
+interface TokenColorCustomizations {
+  textMateRules?: TextMateRule[];
+  [key: string]: unknown;
+}
+
+function isOurRule(rule: TextMateRule | undefined): boolean {
+  if (!rule || rule.settings == null) {
+    return false;
+  }
   const scope = rule.scope;
   if (typeof scope === "string") {
     return SCOPE_MARKERS.includes(scope);
@@ -21,7 +36,7 @@ function isOurRule(rule) {
   return false;
 }
 
-function buildOurRule(foreground) {
+function buildOurRule(foreground: string): TextMateRule {
   return {
     scope: [...SCOPE_MARKERS],
     settings: {
@@ -30,63 +45,35 @@ function buildOurRule(foreground) {
   };
 }
 
-function resolveTarget() {
+function resolveTarget(): vscode.ConfigurationTarget {
   if (vscode.workspace.workspaceFolders?.length) {
     return vscode.ConfigurationTarget.Workspace;
   }
   return vscode.ConfigurationTarget.Global;
 }
 
-async function applyForeground(foreground) {
+async function applyForeground(foreground: string | undefined): Promise<void> {
   const color =
     typeof foreground === "string" && foreground.trim()
       ? foreground.trim()
       : DEFAULT_FOREGROUND;
 
   const editorConfig = vscode.workspace.getConfiguration("editor");
-  const current = editorConfig.get("tokenColorCustomizations") || {};
-  const existingRules = Array.isArray(current.textMateRules)
-    ? current.textMateRules
-    : [];
+  const current = (editorConfig.get("tokenColorCustomizations") ?? {}) as TokenColorCustomizations;
+  const existingRules = Array.isArray(current.textMateRules) ? current.textMateRules : [];
   const nextRules = existingRules.filter((rule) => !isOurRule(rule));
   nextRules.push(buildOurRule(color));
 
-  const next = {
+  const next: TokenColorCustomizations = {
     ...current,
     textMateRules: nextRules,
   };
 
-  await editorConfig.update(
-    "tokenColorCustomizations",
-    next,
-    resolveTarget(),
-  );
+  await editorConfig.update("tokenColorCustomizations", next, resolveTarget());
 }
 
-async function syncFromSettings() {
+export async function syncFromSettings(): Promise<void> {
   const cfg = vscode.workspace.getConfiguration("typstBuddy");
-  const foreground = cfg.get("foreground", DEFAULT_FOREGROUND);
+  const foreground = cfg.get<string>("foreground", DEFAULT_FOREGROUND);
   await applyForeground(foreground);
 }
-
-/**
- * @param {vscode.ExtensionContext} context
- */
-function activate(context) {
-  void syncFromSettings();
-
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("typstBuddy.foreground")) {
-        void syncFromSettings();
-      }
-    }),
-  );
-}
-
-function deactivate() {}
-
-module.exports = {
-  activate,
-  deactivate,
-};

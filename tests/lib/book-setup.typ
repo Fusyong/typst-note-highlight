@@ -398,38 +398,6 @@
   }
 }
 
-/// 按版心宽把译文拆成行（首行可用宽 = full-w - first-indent，其后 full-w）
-/// measure-line：string → width；按字簇贪心折行（中文无空格）
-#let _yi-break-lines(plain, measure-line, first-indent, full-w) = {
-  let clusters = plain.clusters()
-  if clusters.len() == 0 {
-    ()
-  } else {
-    let lines = ()
-    let cur = ""
-    let first = true
-    for ch in clusters {
-      let trial = cur + ch
-      let limit = if first {
-        calc.max(full-w - first-indent, 1pt)
-      } else {
-        full-w
-      }
-      if cur != "" and measure-line(trial) > limit + 0.5pt {
-        lines.push(cur)
-        cur = ch
-        first = false
-      } else {
-        cur = trial
-      }
-    }
-    if cur != "" {
-      lines.push(cur)
-    }
-    lines
-  }
-}
-
 /// 在 all-ys 中找当前锚点所在行：优先「不晚于 pos.y」的最近行，避免误配到下一行
 #let _yi-line-index(all-ys, page, y) = {
   if all-ys.len() == 0 {
@@ -666,6 +634,9 @@
     if payload != none {
       // #nt / #py：只取被注词／底字，不含注文；避免与绘制副本重复计数
       _plain-text(payload.word)
+    } else if repr(it.func()) == "space" {
+      // 源码换行常收成 space；不可丢成 ""，否则拼音行衔接处会黏连
+      " "
     } else if it.has("text") {
       it.text
     } else if it.has("children") {
@@ -682,7 +653,102 @@
   }
 }
 
-/// 去掉 content 开头空白（markup 换行缩进会变成字前空格，导致译文锚点错位）
+/// 行首禁则（避头点）：不可出现在行首的字/标点（与 Typst CJK / CLREQ 常见集对齐）
+#let _yi-head-prohibited-chars = "，、。．；：？！%）］｝》」』】〉ゝゞー〞〟’”".clusters()
+/// 行末禁则（避尾点）：不可出现在行末的字/标点
+#let _yi-end-prohibited-chars = "（［｛《「『【〈“‘".clusters()
+
+#let _yi-atom-clusters(atom) = {
+  if type(atom) == str {
+    atom.clusters()
+  } else {
+    _plain-text(atom).clusters()
+  }
+}
+
+#let _yi-no-break-before(atom) = {
+  let cs = _yi-atom-clusters(atom)
+  cs.len() > 0 and _yi-head-prohibited-chars.contains(cs.at(0))
+}
+
+#let _yi-no-break-after(atom) = {
+  let cs = _yi-atom-clusters(atom)
+  cs.len() > 0 and _yi-end-prohibited-chars.contains(cs.at(cs.len() - 1))
+}
+
+/// 按版心宽把译文原子拆成行（首行可用宽 = full-w - first-indent，其后 full-w）
+/// - atoms：字簇（str）可断；#nt 整段不可断
+/// - fits-one-line(slice, width)：用 Typst 段落测定「能否单行排下」（与正文同一套折行引擎）
+/// - 在测定结果上再应用行首/行末禁则，避免标点落行首（避头点）
+/// 返回每行已 join 的 content（可含 #nt）
+#let _yi-break-atoms(atoms, fits-one-line, first-indent, full-w) = {
+  if atoms.len() == 0 {
+    ()
+  } else {
+    let lines = ()
+    let i = 0
+    let first = true
+    let n = atoms.len()
+    while i < n {
+      let width = if first {
+        calc.max(full-w - first-indent, 1pt)
+      } else {
+        full-w
+      }
+      // 用引擎测定贪心拉长：与正文同一套 linebreak（含 CJK 规则）
+      let j = i + 1
+      while j <= n and fits-one-line(atoms.slice(i, j), width) {
+        j += 1
+      }
+      let end = if j == i + 1 { j } else { j - 1 }
+
+      // 避头点：不可在禁则字前断行——能放下则吸入本行，否则连同前字一并挪到下行
+      while end < n and end > i and _yi-no-break-before(atoms.at(end)) {
+        let try-end = end + 1
+        if fits-one-line(atoms.slice(i, try-end), width) {
+          end = try-end
+        } else {
+          while end > i and _yi-no-break-before(atoms.at(end)) {
+            end -= 1
+          }
+          break
+        }
+      }
+
+      // 避尾点：行末勿留开括号等
+      while end > i + 1 and _yi-no-break-after(atoms.at(end - 1)) {
+        end -= 1
+      }
+
+      if end <= i {
+        end = i + 1
+      }
+
+      lines.push(atoms.slice(i, end).join())
+      i = end
+      first = false
+    }
+    lines
+  }
+}
+
+/// 纯文本折行（无 #nt 时的简便入口；内部转成字簇原子）
+#let _yi-break-lines(plain, fits-one-line, first-indent, full-w) = {
+  let atoms = if type(plain) == str { plain.clusters() } else { () }
+  _yi-break-atoms(atoms, fits-one-line, first-indent, full-w)
+}
+
+/// 是否为可剥除的空白节点（空格、换行、空段等）
+#let _is-blank-node(c) = {
+  if c == [ ] or c == [] {
+    true
+  } else {
+    let tag = repr(c)
+    tag == "space" or tag.starts-with("linebreak") or tag.starts-with("parbreak")
+  }
+}
+
+/// 去掉 content / str 开头空白与空行（markup 缩进、块首换行会变成字前空格，导致锚点错位）
 #let _trim-start(body) = {
   if type(body) == str {
     body.trim(at: start)
@@ -703,19 +769,19 @@
           } else {
             break
           }
-        } else if c == [ ] or c == [] {
+        } else if _is-blank-node(c) {
           i += 1
         } else {
-          // linebreak / space 等空白节点
-          let tag = repr(c)
-          if tag == "space" or tag.starts-with("linebreak") {
-            i += 1
-          } else {
-            break
-          }
+          break
         }
       }
-      cs.slice(i).join()
+      if i == 0 {
+        body
+      } else if i >= cs.len() {
+        []
+      } else {
+        cs.slice(i).join()
+      }
     } else if body.has("body") {
       _trim-start(body.body)
     } else {
@@ -726,14 +792,165 @@
   }
 }
 
+/// 去掉 content / str 末尾空白与空行
+#let _trim-end(body) = {
+  if type(body) == str {
+    body.trim(at: end)
+  } else if type(body) == content {
+    if body.has("text") {
+      body.text.trim(at: end)
+    } else if body.has("children") {
+      let cs = body.children
+      let j = cs.len()
+      while j > 0 {
+        let c = cs.at(j - 1)
+        if type(c) == content and c.has("text") {
+          let t = c.text.trim(at: end)
+          if t.len() == 0 {
+            j -= 1
+          } else if t.len() < c.text.len() {
+            return (..cs.slice(0, j - 1), t).join()
+          } else {
+            break
+          }
+        } else if _is-blank-node(c) {
+          j -= 1
+        } else {
+          break
+        }
+      }
+      if j >= cs.len() {
+        body
+      } else if j == 0 {
+        []
+      } else {
+        cs.slice(0, j).join()
+      }
+    } else if body.has("body") {
+      _trim-end(body.body)
+    } else {
+      body
+    }
+  } else {
+    body
+  }
+}
+
+/// 去掉 content / str 首尾空白与空行（正文 / 译文 / 拼音解析共用）
+#let _trim(body) = _trim-end(_trim-start(body))
+
+/// 是否为行分隔节点。
+/// Typst 常把源码中的单换行收成 space，空行收成 parbreak；均视为行界。
+/// 行内音节空格在 text 节点字符串内部，不会变成独立 space 节点。
+#let _is-line-sep-node(c) = {
+  if type(c) != content {
+    false
+  } else if c == [] {
+    true
+  } else {
+    let f = repr(c.func())
+    f == "space" or f.starts-with("linebreak") or f.starts-with("parbreak")
+  }
+}
+
+/// 字符串是否仅由空白字符构成（含空格、制表、全角空格等 Unicode 空白）
+#let _is-blank-string(s) = {
+  type(s) == str and s.match(regex("^\s*$")) != none
+}
+
+/// 一行是否为空行（无内容，或仅空白字符）
+#let _is-blank-line(piece) = {
+  piece == none or piece == [] or _is-blank-string(_plain-text(piece))
+}
+
+/// 将 body 按换行拆成行；每行再 _trim；空白行（含仅空白字符的行）丢掉
+#let _split-content-lines(body) = {
+  if type(body) == str {
+    body
+      .split(regex("\r\n|\r|\n"))
+      .map(l => l.trim())
+      .filter(l => not _is-blank-string(l))
+  } else if type(body) != content {
+    let s = str(body).trim()
+    if _is-blank-string(s) { () } else { (s,) }
+  } else if body.has("text") {
+    body.text
+      .split(regex("\r\n|\r|\n"))
+      .map(l => l.trim())
+      .filter(l => not _is-blank-string(l))
+  } else if body.has("children") {
+    let lines = ()
+    let cur = ()
+    for c in body.children {
+      if _is-line-sep-node(c) {
+        if cur.len() > 0 {
+          let piece = _trim(cur.join())
+          if not _is-blank-line(piece) {
+            lines.push(piece)
+          }
+          cur = ()
+        }
+      } else if type(c) == content and c.has("text") and c.text.match(regex("[\r\n]")) != none {
+        // 同一 text 节点内含换行：拆开；中间的空白行视为空行
+        let parts = c.text.split(regex("\r\n|\r|\n"))
+        for (pi, part) in parts.enumerate() {
+          if pi > 0 {
+            if cur.len() > 0 {
+              let piece = _trim(cur.join())
+              if not _is-blank-line(piece) {
+                lines.push(piece)
+              }
+              cur = ()
+            }
+          }
+          if not _is-blank-string(part) {
+            cur.push(part)
+          }
+        }
+      } else {
+        cur.push(c)
+      }
+    }
+    if cur.len() > 0 {
+      let piece = _trim(cur.join())
+      if not _is-blank-line(piece) {
+        lines.push(piece)
+      }
+    }
+    lines
+  } else if body.has("body") {
+    _split-content-lines(body.body)
+  } else {
+    if _is-blank-line(body) { () } else { (body,) }
+  }
+}
+
+/// 先去首尾空行/空白，再将多行拼成一行（仅空白字符的行也视为空行丢掉）
+/// - sep: 行与行之间的拼接符；正文/译文用 ""，拼音用 " "
+/// - 拼音：每行先去掉首尾空白，再在拼接处加入恰好一个空格
+#let _flatten-to-one-line(body, sep: "") = {
+  let lines = _split-content-lines(_trim(body))
+  if lines.len() == 0 {
+    []
+  } else if lines.len() == 1 {
+    lines.at(0)
+  } else if sep == "" {
+    lines.join()
+  } else {
+    // 拼音等：统一成去首尾空白的纯文本，再以单个空格拼接（避免 content join 丢空格）
+    lines.map(ln => _plain-text(ln).trim()).filter(s => not _is-blank-string(s)).join(sep)
+  }
+}
+
 /// 是否为需占拼音槽的汉字（标点、数字、拉丁字母等均跳过）
 #let _is-han(ch) = ch.match(regex("\p{Han}")) != none
 
-/// 解析第三参拼音：单空格分音节；连续空格产生空槽（省略该字拼音）
+/// 解析第三参拼音：单空格分音节；连续两空格产生空槽（省略该字拼音）
 #let _parse-yin-slots(yin) = {
   if yin == none {
     none
   } else {
+    // 多行已在 _flatten-to-one-line 中按空格拼好；此处只规整残余换行
     let s = _plain-text(yin).replace(regex("[\n\t\r]+"), " ").trim()
     if s.len() == 0 {
       ()
@@ -966,7 +1183,8 @@
 /// 行上注实际绘制
 /// 被注词用 highlight 描边（可跨行断框；若内嵌拼音则整段不可断，以免拼音错行），不用不可断行的 box 装框；
 /// 注文以零宽锚点叠放：a="l" 锚在词首左侧（注文左缘对齐词首），
-/// a="r" 锚在词尾右侧（注文右缘对齐词尾）；注文内部始终左齐。
+/// a="r" 锚在词尾右侧（注文右缘对齐词尾），
+/// a="c" 锚在词首左侧并按被注词宽度水平居中；注文内部始终左齐。
 /// 锚点与正文之间用 wj 禁止断行。注文为空时只描边、不叠注文、不抬高行。
 /// 内嵌 #py / #snt 第三参注音时：拼音叠在框外；整段不可断行以保持拼音与底字对齐。
 #let _nt-render(
@@ -985,7 +1203,7 @@
   stroke-width: 0.45pt,
 ) = context {
   set par.line(numbering: none)
-  assert(a == "l" or a == "r", message: "upnote 的 a 仅支持 \"l\"|\"r\"")
+  assert(a == "l" or a == "r" or a == "c", message: "upnote 的 a 仅支持 \"l\"|\"r\"|\"c\"")
   let style-note(body) = {
     set text(
       lang: "zh",
@@ -1034,7 +1252,7 @@
   } else {
     let note-width = _note-flow-width(chars, measure-note, lines: ln)
     let word-m0 = measure(word)
-    // 注文内部始终左齐；a 只决定整块注文相对正文左缘/右缘对齐
+    // 注文内部始终左齐；a 只决定整块注文相对正文的水平位置
     let note-block = block(
       width: note-width,
       {
@@ -1047,9 +1265,15 @@
     let total-h = note-m.height + gap-abs + word-m0.height
     // 先按实宽实高锁死，再经零宽锚点 place，避免零宽父级内再次重排
     let locked = box(width: note-m.width, height: note-m.height, clip: false, note-block)
-    let place-align = if a == "r" { top + right } else { top + left }
+    let (place-align, dx-note) = if a == "r" {
+      (top + right, o-abs)
+    } else if a == "c" {
+      (top + left, (word-m0.width - note-m.width) / 2 + o-abs)
+    } else {
+      (top + left, o-abs)
+    }
     let anchor = box(width: 0pt, height: total-h, baseline: bottom)[
-      #place(place-align, dx: o-abs, locked)
+      #place(place-align, dx: dx-note, locked)
     ]
     if a == "r" {
       // 右锚：正文 + wj + 锚点（禁止锚与词尾断行）
@@ -1057,7 +1281,7 @@
       sym.wj
       anchor
     } else {
-      // 左锚：锚点 + wj + 正文（禁止锚与词首断行）
+      // 左锚 / 居中：锚点 + wj + 正文（禁止锚与词首断行）
       anchor
       sym.wj
       framed
@@ -1263,22 +1487,23 @@
   out
 }
 
-/// 译文内容：保留 #nt（框／注文），其余压成纯文本（减 measure 振荡）
+/// 译文原子序列：字簇可断行；#nt（框／注文）整段不可断；其余压成纯文本
 /// 展平的 [#metadata#绘制] 成对识别，只重建一次
-#let _yi-content(it) = {
+#let _yi-atoms(it) = {
   if type(it) == str {
-    it
+    if it == "" { () } else { it.clusters() }
   } else if it == none {
-    ""
+    ()
   } else if type(it) != content {
-    str(it)
+    str(it).clusters()
   } else if _meta-kind(it) == "nt" {
     let v = _annot-payload(it)
-    _nt-from-payload(v, v.word)
+    // box：译文折行时整段 #nt 不可断（与夹注「有拼音则整段不可断」一致）
+    (box(_nt-from-payload(v, v.word)),)
   } else if _meta-kind(it) == "py" {
-    _plain-text(it)
+    _plain-text(it).clusters()
   } else if it.has("text") {
-    it.text
+    if it.text == "" { () } else { it.text.clusters() }
   } else if it.has("children") {
     let out = ()
     let children = it.children
@@ -1288,32 +1513,34 @@
       let kind = _meta-kind(ch)
       if kind == "nt" {
         let v = _annot-payload(ch)
-        out.push(_nt-from-payload(v, v.word))
+        out.push(box(_nt-from-payload(v, v.word)))
         j += 1
         if ch.func() == metadata and j < children.len() and _meta-kind(children.at(j)) == none {
           j += 1
         }
       } else if kind == "py" {
-        out.push(_plain-text(ch))
+        out += _plain-text(ch).clusters()
         j += 1
         if ch.func() == metadata and j < children.len() and _meta-kind(children.at(j)) == none {
           j += 1
         }
       } else {
-        let piece = _yi-content(ch)
-        if piece != none and piece != "" {
-          out.push(piece)
-        }
+        out += _yi-atoms(ch)
         j += 1
       }
     }
-    let s = out.join()
-    if s == none { "" } else { s }
+    out
   } else if it.has("body") {
-    _yi-content(it.body)
+    _yi-atoms(it.body)
   } else {
-    ""
+    ()
   }
+}
+
+/// 译文内容：保留 #nt（框／注文），其余压成纯文本（减 measure 振荡）
+#let _yi-content(it) = {
+  let s = _yi-atoms(it).join()
+  if s == none { "" } else { s }
 }
 
 /// 遍历正文 content：#nt 只注被注词；遇 #py 则报错
@@ -1380,12 +1607,14 @@
 }
 
 /// 句子（句下译）：#snt[古文][译文] 或 #snt[古文][译文][拼音]
+/// - 正文／译文／拼音：去首尾空行与空白后，多行拼成一行（拼音拼接处加一空格）
 /// - 第三参可选：音节空格分隔；连续两空格表示该汉字省略拼音；标点/数字/拉丁字母不占槽
 /// - notes: ([注1], [注2], …) 解释层：按序填入正文中「省略第二块」的轻锚点（#ntw[词] 等）
 ///   写法：`#snt(notes: ([…], […]))[古文][译文][拼音]`（命名参数须在括号内，不能写在 ] 后）
 ///   仅加框：在 notes 中写 [] 占位（与轻锚点一一对应）；短注可内嵌 `#ntc[走][跑]`（不消耗 notes）
 /// - 正文中 #nt 只对「被注词」注音，注文不参与；此时勿再嵌 #py
-/// - 译文中可使用 #nt／#ntc 等（含仅加框）；其余标记压成纯文本
+/// - 译文中可使用 #nt／#ntc 等（含仅加框；折行保留框，并与正文同用 CJK 禁则／避头点）
+/// - 其余标记压成纯文本
 /// - 古文楷体、译文宋体；通常可接排、句内自由断行
 /// - 译文按本段实测 body-y 逐行放置（行距随该行注/拼实际高度变；无 ys 时回退估计）
 /// - 折行条件看本句古文/译文相对本行剩余宽
@@ -1406,8 +1635,10 @@
     panic("notes: 须为数组，如 notes: ([注1], [注2])")
   }
 
-  // markup 缩进产生的字前空格会使锚点落在空格前，译文与正文错位
-  let wen = _trim-start(wen)
+  // 去首尾空行/空白后，多行拼成一行（拼音拼接处加一空格）
+  let wen = _flatten-to-one-line(wen)
+  let yi = _flatten-to-one-line(yi)
+  let yin = if yin == none { none } else { _flatten-to-one-line(yin, sep: " ") }
   let wen = if note-list != none {
     _apply-notes-to-content(wen, note-list)
   } else {
@@ -1423,7 +1654,6 @@
     set text(font: font-cjk(fonts.kai))
     wen
   }
-  let yi = _trim-start(yi)
 
   let region = _snt-region.get()
   let text-left = region.left
@@ -1484,20 +1714,39 @@
     set par.line(numbering: none)
     body
   }
-  let yi-body = _yi-content(yi)
+  let yi-atoms = _yi-atoms(yi)
+  let yi-body = {
+    let s = yi-atoms.join()
+    if s == none { "" } else { s }
+  }
   let yi-nowrap = yi-style(box(yi-body))
 
-  let measure-yi-str(s) = measure(yi-style(box(s))).width
-  let yi-plain = _plain-text(yi)
+  // 与正文相同：用 Typst 段落引擎测定能否单行排下（含 CJK 折行），再叠加禁则
+  let fits-yi-slice(slice, width) = {
+    if slice.len() == 0 {
+      true
+    } else {
+      let body = slice.join()
+      let h = measure(
+        width: width,
+        yi-style({
+          set par(leading: 0pt, spacing: 0pt, justify: false, linebreaks: auto)
+          body
+        }),
+      ).height
+      h <= yi-line-h + 1pt
+    }
+  }
+  let measure-yi(body) = measure(yi-style(box(body))).width
   let yi-lines = {
-    let lines = _yi-break-lines(yi-plain, measure-yi-str, first-indent, full-w)
+    let lines = _yi-break-atoms(yi-atoms, fits-yi-slice, first-indent, full-w)
     if lines.len() == 0 { ("",) } else { lines }
   }
 
   // A3：按本句古文/译文相对本行剩余宽决定是否折行
   let wen-w = measure(wen).width
   let yi-nat-w = {
-    let probe = yi-style(box(yi-plain))
+    let probe = yi-style(box(yi-body))
     let m = measure(probe)
     if m.width > 1pt { m.width } else { measure(yi-nowrap).width }
   }
@@ -1551,10 +1800,11 @@
           let dx-i = place-dx0 + (if i == 0 { first-indent } else { 0pt })
           let dy-i = yi-line-dys.at(i)
           // 必须锁宽：零宽父级内未锁宽 → 可用宽被压成 0 → 一字一行
+          // line 可为含 #nt 的 content（折行仍保留框）
           let piece = yi-style(box(line))
           let pw = {
             let m = measure(piece)
-            if m.width > 1pt { m.width } else { measure-yi-str(line) }
+            if m.width > 1pt { m.width } else { measure-yi(line) }
           }
           place(
             top + left,
@@ -1566,7 +1816,7 @@
       }),
     )
   } else {
-    let probe = yi-style(box(yi-plain))
+    let probe = yi-style(box(yi-body))
     let m = measure(probe)
     let w = if m.width > 1pt { m.width } else { full-w }
     place(
@@ -1746,13 +1996,13 @@
 /// 行上注：#nt[被注词][注释正文]；仅加框（无 notes 时）：#nt[被注词]
 /// 轻锚点（供 #snt(notes: …)）：#nt[被注词]（省略第二块）；仅加框时在 notes 中写 [] 占位
 /// 单行：#nt(ln: 1)[被注词][注释正文]；三行：#nt(ln: 3)[...][...]
-/// 右对齐：#nt(a: "r")[被注词][注释正文]；偏置：#nt(o: 0.2em)[…][…]（正右负左）
+/// 右对齐：#nt(a: "r")[被注词][注释正文]；居中：#nt(a: "c")[…][…]；偏置：#nt(o: 0.2em)[…][…]（正右负左）
 /// 框线：#nt(c: "c", dash: "dotted")[…][…]；捷径如 #ncd（c 色点线）
 /// - 被注词用 highlight 描边（不填色，可跨行断框；内嵌 #py / #snt 注音时底字连成一框、拼音不入框，且整段不中断以免拼音错行）；注文默认 ink 色、零宽叠放
 /// - 省略第二块：标记 from-notes，由 #snt(notes: …) 按序填注；未给 notes 时只描边
 /// - 第二块有注文则内嵌，不消耗 notes；空／空白注文只描边
 /// - ln：注文行数，默认 2；可传 ≥1 的任意整数
-/// - a：注文相对正文的对齐，"l"（默认，注文左缘对齐词首）|"r"（注文右缘对齐词尾）；
+/// - a：注文相对正文的对齐，"l"（默认，注文左缘对齐词首）|"r"（注文右缘对齐词尾）|"c"（相对被注词水平居中）；
 ///   注文内部始终左齐；锚与正文间禁止断行
 /// - o：注文水平偏置（默认 0；正值右移、负值左移）
 /// - c：框线色键，仅 "c"|"g"（默认 g）；注文固定为 ink 色

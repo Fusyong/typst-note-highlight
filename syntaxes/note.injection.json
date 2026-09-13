@@ -1,7 +1,10 @@
 {
   "scopeName": "typst-note.injection",
-  "injectionSelector": "L:source.typst",
+  "injectionSelector": "L:source.typst -comment",
   "patterns": [
+    {
+      "include": "#comments"
+    },
     {
       "include": "#snt-call"
     },
@@ -10,11 +13,49 @@
     }
   ],
   "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "include": "#block-comment"
+        },
+        {
+          "include": "#line-comment"
+        }
+      ]
+    },
+    "block-comment": {
+      "name": "comment.block.typst",
+      "begin": "/\\*",
+      "end": "\\*/",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.comment.typst"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#block-comment"
+        }
+      ]
+    },
+    "line-comment": {
+      "name": "comment.line.double-slash.typst",
+      "begin": "(?<!:)//",
+      "end": "(?=$)",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.comment.typst"
+        }
+      }
+    },
     "nested-brackets": {
       "begin": "\\[",
       "end": "\\]",
       "applyEndPatternLast": true,
       "patterns": [
+        {
+          "include": "#comments"
+        },
         {
           "include": "#nested-brackets"
         }
@@ -35,6 +76,9 @@
       "applyEndPatternLast": true,
       "patterns": [
         {
+          "include": "#comments"
+        },
+        {
           "include": "#secondary-same-line"
         },
         {
@@ -48,6 +92,9 @@
       "name": "meta.snt.args.typst",
       "patterns": [
         {
+          "include": "#comments"
+        },
+        {
           "include": "#snt-paren-args"
         },
         {
@@ -57,6 +104,9 @@
           "name": "meta.editorial.secondary.typst",
           "contentName": "markup.editorial.secondary.typst",
           "patterns": [
+            {
+              "include": "#comments"
+            },
             {
               "include": "#nested-brackets"
             }
@@ -69,6 +119,9 @@
       "end": "(?=\\])",
       "applyEndPatternLast": true,
       "patterns": [
+        {
+          "include": "#comments"
+        },
         {
           "include": "#note-call"
         },
@@ -91,6 +144,9 @@
       "end": "\\](?![ \\t]*\\[)",
       "applyEndPatternLast": true,
       "patterns": [
+        {
+          "include": "#comments"
+        },
         {
           "include": "#snt-paren-args"
         },
@@ -121,6 +177,9 @@
       "contentName": "markup.editorial.secondary.typst",
       "patterns": [
         {
+          "include": "#comments"
+        },
+        {
           "include": "#note-call"
         },
         {
@@ -139,12 +198,18 @@
       "applyEndPatternLast": true,
       "patterns": [
         {
+          "include": "#comments"
+        },
+        {
           "begin": "^[ \\t]*\\[",
           "end": "(?=\\])",
           "applyEndPatternLast": true,
           "name": "meta.editorial.secondary.typst",
           "contentName": "markup.editorial.secondary.typst",
           "patterns": [
+            {
+              "include": "#comments"
+            },
             {
               "include": "#note-call"
             },
