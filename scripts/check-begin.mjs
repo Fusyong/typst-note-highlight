@@ -1,6 +1,7 @@
 const begin =
   /(#)((?:ntw|ntc|ntj|upnote|ncs|ncx|ncd|nch|ngs|ngx|ngd|ngh|nt|py)\b)(?:\((?:[^()]|\([^()]*\))*\))?\[/g;
 const sntBegin = /(#)(snt)\b/g;
+const bzBegin = /(#)(bz)(?![A-Za-z0-9_-])/g;
 
 const samples = [
   "#ntw[建和元年][147 年。建和是汉桓帝年号]",
@@ -40,6 +41,35 @@ for (const s of sntSamples) {
   } else {
     console.log("OK  ", m[2], s.slice(0, 48));
   }
+}
+
+const bzSamples = [
+  "#bz[此处宜改为……]",
+  "#bz(width: 10em)[…]",
+  "#bz(o: 1em, dy: -0.5em)[偏置]",
+  `#bz(
+  dy: 5em,
+  width: 25em,
+)[跨行命名参数]`,
+];
+
+for (const s of bzSamples) {
+  bzBegin.lastIndex = 0;
+  const m = bzBegin.exec(s);
+  if (!m) {
+    failed += 1;
+    console.log("FAIL bz", s);
+  } else {
+    console.log("OK  ", m[2], s.slice(0, 48).replace(/\s+/g, " "));
+  }
+}
+
+bzBegin.lastIndex = 0;
+if (bzBegin.exec("#bz-paint-page()")) {
+  failed += 1;
+  console.log("FAIL bz matched hyphenated name #bz-paint-page()");
+} else {
+  console.log("OK   bz does not match #bz-paint-page()");
 }
 
 process.exit(failed ? 1 : 0);

@@ -60,23 +60,41 @@ const grammar = await registry.loadGrammarWithConfiguration("source.typst", 0, {
 });
 
 /** @param {string} sample */
-function collectSecondary(sample) {
+function tokenize(sample) {
   let ruleStack = vsctm.INITIAL;
   const lines = sample.split(/\r?\n/);
-  /** @type {string[]} */
-  const hits = [];
+  /** @type {{ text: string, scopes: string }[]} */
+  const tokens = [];
   for (const line of lines) {
     const r = grammar.tokenizeLine(line, ruleStack);
     ruleStack = r.ruleStack;
     for (const t of r.tokens) {
-      const text = line.slice(t.startIndex, t.endIndex);
-      const scopes = t.scopes.join(" ");
-      if (scopes.includes("markup.editorial.secondary.typst") && text.trim()) {
-        hits.push(text);
-      }
+      tokens.push({
+        text: line.slice(t.startIndex, t.endIndex),
+        scopes: t.scopes.join(" "),
+      });
     }
   }
-  return hits;
+  return tokens;
+}
+
+/** @param {string} sample */
+function collectSecondary(sample) {
+  return tokenize(sample)
+    .filter((t) => t.scopes.includes("markup.editorial.secondary.typst") && t.text.trim())
+    .map((t) => t.text);
+}
+
+/** #bz 内容参数：与 // 行注释同一 scope，且落在 bz 调用内 */
+function collectBzComment(sample) {
+  return tokenize(sample)
+    .filter(
+      (t) =>
+        t.scopes.includes("meta.bz.call.typst") &&
+        t.scopes.includes("comment.line.double-slash.typst") &&
+        t.text.trim(),
+    )
+    .map((t) => t.text);
 }
 
 /** @param {string} name @param {string} sample @param {string[]} mustInclude @param {string[]} [mustExclude] */
@@ -186,9 +204,91 @@ const cases = [
   },
 ];
 
+/** @param {string} name @param {string} sample @param {string[]} mustInclude @param {string[]} [mustExclude] */
+function assertBzComment(name, sample, mustInclude, mustExclude = []) {
+  const hits = collectBzComment(sample);
+  const joined = hits.join("");
+  const missing = mustInclude.filter((s) => !joined.includes(s));
+  const leaked = mustExclude.filter((s) => joined.includes(s));
+  const secondaryLeak = collectSecondary(sample).join("");
+  const leakedToSecondary = mustInclude.filter((s) => secondaryLeak.includes(s));
+  if (missing.length || leaked.length || leakedToSecondary.length) {
+    console.error(`FAIL ${name}`);
+    console.error("  bz comment:", hits.map((h) => JSON.stringify(h)).join(" "));
+    if (missing.length) console.error("  missing:", missing);
+    if (leaked.length) console.error("  leaked:", leaked);
+    if (leakedToSecondary.length) console.error("  leaked to secondary:", leakedToSecondary);
+    return false;
+  }
+  console.log(`OK   ${name}`);
+  for (const h of hits) {
+    console.log("     ", JSON.stringify(h));
+  }
+  return true;
+}
+
+const bzCases = [
+  {
+    name: "bz 内容同 // 行注释",
+    sample: `#bz[这里是备注，可记录发现的问题。]
+`,
+    must: ["这里是备注，可记录发现的问题。"],
+    mustNot: ["bz"],
+  },
+  {
+    name: "bz 命名参数不着色，内容着色",
+    sample: `#bz(width: 25em)[成语典故加正式的解释]
+`,
+    must: ["成语典故加正式的解释"],
+    mustNot: ["width", "25em"],
+  },
+  {
+    name: "bz 跨行命名参数 + 内容",
+    sample: `#bz(
+  dy: 5em,
+  width: 25em,
+)[初期只使用 ntc 一种注释形式]
+`,
+    must: ["初期只使用 ntc 一种注释形式"],
+    mustNot: ["dy", "5em", "width", "25em"],
+  },
+  {
+    name: "bz 内容含嵌套方括号",
+    sample: `#bz[见上文[守株待兔]典故]
+`,
+    must: ["见上文", "守株待兔", "典故"],
+  },
+  {
+    name: "snt 古文中的内嵌 bz",
+    sample: `#snt[魏王欲攻邯郸，#bz[审校：此处「邯郸」是否需加注？]季梁闻之][译文]
+`,
+    must: ["审校：此处「邯郸」是否需加注？"],
+    mustNot: ["魏王欲攻邯郸", "季梁闻之", "译文"],
+  },
+  {
+    name: "行注释中的 #bz 不抢匹配",
+    sample: `// #bz[假备注]
+#bz[真备注]
+`,
+    must: ["真备注"],
+    mustNot: ["假备注"],
+  },
+  {
+    name: "bz- 前缀函数名不抢匹配",
+    sample: `#bz-paint-page()
+#bz[真备注]
+`,
+    must: ["真备注"],
+    mustNot: ["paint"],
+  },
+];
+
 let ok = true;
 for (const c of cases) {
   if (!assertSample(c.name, c.sample, c.must, c.mustNot)) ok = false;
+}
+for (const c of bzCases) {
+  if (!assertBzComment(c.name, c.sample, c.must, c.mustNot ?? [])) ok = false;
 }
 
 // oniguruma WASM 在 Windows 上 process.exit 可能触发 libuv 断言；跳过清理

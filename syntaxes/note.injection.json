@@ -6,6 +6,9 @@
       "include": "#comments"
     },
     {
+      "include": "#bz-call"
+    },
+    {
       "include": "#snt-call"
     },
     {
@@ -57,7 +60,77 @@
           "include": "#comments"
         },
         {
+          "include": "#bz-call"
+        },
+        {
           "include": "#nested-brackets"
+        }
+      ]
+    },
+    "bz-nested-brackets": {
+      "begin": "\\[",
+      "end": "\\]",
+      "applyEndPatternLast": true,
+      "contentName": "comment.line.double-slash.typst",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#bz-nested-brackets"
+        }
+      ]
+    },
+    "bz-paren-args": {
+      "begin": "\\(",
+      "end": "\\)",
+      "name": "meta.bz.args.typst",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#bz-paren-args"
+        }
+      ]
+    },
+    "bz-content": {
+      "begin": "\\[",
+      "end": "\\]",
+      "applyEndPatternLast": true,
+      "name": "meta.bz.content.typst",
+      "contentName": "comment.line.double-slash.typst",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#bz-nested-brackets"
+        }
+      ]
+    },
+    "bz-call": {
+      "name": "meta.bz.call.typst",
+      "begin": "(#)(bz)(?![A-Za-z0-9_-])",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.hash.bz.typst"
+        },
+        "2": {
+          "name": "entity.name.function.bz.typst"
+        }
+      },
+      "end": "(?<=\\])",
+      "applyEndPatternLast": true,
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#bz-paren-args"
+        },
+        {
+          "include": "#bz-content"
         }
       ]
     },
@@ -77,6 +150,9 @@
       "patterns": [
         {
           "include": "#comments"
+        },
+        {
+          "include": "#bz-call"
         },
         {
           "include": "#secondary-same-line"
@@ -108,6 +184,9 @@
               "include": "#comments"
             },
             {
+              "include": "#bz-call"
+            },
+            {
               "include": "#nested-brackets"
             }
           ]
@@ -121,6 +200,9 @@
       "patterns": [
         {
           "include": "#comments"
+        },
+        {
+          "include": "#bz-call"
         },
         {
           "include": "#note-call"
@@ -160,6 +242,9 @@
           "include": "#snt-first-content"
         },
         {
+          "include": "#bz-call"
+        },
+        {
           "include": "#note-call"
         }
       ]
@@ -178,6 +263,9 @@
       "patterns": [
         {
           "include": "#comments"
+        },
+        {
+          "include": "#bz-call"
         },
         {
           "include": "#note-call"
@@ -209,6 +297,9 @@
           "patterns": [
             {
               "include": "#comments"
+            },
+            {
+              "include": "#bz-call"
             },
             {
               "include": "#note-call"
