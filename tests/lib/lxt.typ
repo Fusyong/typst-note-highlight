@@ -1,14 +1,15 @@
-/// 连线练习题（#lx）
+/// 连线练习题（#lxt）
 ///
 /// 用法：
 /// ```
-/// #lx(seed: 123)[
+/// #lxt(seed: 123)[
 ///   + 白话提问？ | 原文答句
 ///   + 另一问？ | 另一答
 /// ]
 /// ```
 /// - 行：`+` 枚举项（顺序＝左栏固定顺序）
 /// - 栏：英文竖线 `|` 分隔左（问）/ 右（答）；两侧空白会去掉
+/// - 左右栏保留行内样式（如 `#kai`、强调）；`|` 只作分栏，不抽成纯文本
 /// - 右栏按 `seed` 做确定性乱序（默认 123）；编译结果可复现
 /// - 正解用透明线连接左右竖条（`#exercise-debug` 打开时为深红色）
 /// - 竖条高度随该行文本（含换行）自适应，至少 1em
@@ -16,7 +17,9 @@
 
 #import "exercise.typ": exercise-answer-color
 
-/// 从 content 抽纯文本（空格节点 → 空格）
+#let _lx-seq = [].func()
+
+/// 从 content 抽纯文本（空格节点 → 空格；仅用于判空 / 含分隔符）
 #let _lx-plain(it) = {
   if type(it) == str {
     it
@@ -31,9 +34,180 @@
     if s == none { "" } else { s }
   } else if it.has("body") {
     _lx-plain(it.body)
+  } else if it.has("child") {
+    // `#kai` 等 text.with(...) 在 Typst 0.13+ 是 styled（child + styles）
+    _lx-plain(it.child)
+  } else if repr(it) == "space" or repr(it.func()) == "space" {
+    " "
   } else {
-    let tag = repr(it)
-    if tag == "space" { " " } else { "" }
+    ""
+  }
+}
+
+/// 把 inner 套回原节点的函数与样式（styled / emph / text 等）
+#let _lx-rewrap(it, inner) = {
+  if inner == none or inner == [] or inner == "" {
+    []
+  } else if type(it) != content {
+    inner
+  } else {
+    let fields = it.fields()
+    if "styles" in fields {
+      it.func()(inner, fields.styles)
+    } else {
+      if "text" in fields { let _ = fields.remove("text") }
+      if "body" in fields { let _ = fields.remove("body") }
+      if "child" in fields { let _ = fields.remove("child") }
+      if "children" in fields { let _ = fields.remove("children") }
+      if fields.len() == 0 {
+        it.func()(inner)
+      } else {
+        it.func()(inner, ..fields)
+      }
+    }
+  }
+}
+
+#let _lx-join-parts(parts) = {
+  if parts.len() == 0 {
+    []
+  } else {
+    parts.join()
+  }
+}
+
+#let _lx-trim-start(it) = {
+  if it == none or it == [] or it == "" {
+    []
+  } else if type(it) == str {
+    let t = it.trim(at: start)
+    if t == "" { [] } else { t }
+  } else if type(it) != content {
+    it
+  } else if repr(it) == "space" or repr(it.func()) == "space" {
+    []
+  } else if it.has("text") {
+    let t = it.text.trim(at: start)
+    if t == "" {
+      []
+    } else if t == it.text {
+      it
+    } else {
+      _lx-rewrap(it, t)
+    }
+  } else if it.func() == _lx-seq {
+    let cs = it.children
+    let i = 0
+    while i < cs.len() {
+      let t = _lx-trim-start(cs.at(i))
+      if t == [] {
+        i += 1
+      } else {
+        return _lx-join-parts((t,) + cs.slice(i + 1))
+      }
+    }
+    []
+  } else if it.has("child") {
+    _lx-rewrap(it, _lx-trim-start(it.child))
+  } else if it.has("body") {
+    _lx-rewrap(it, _lx-trim-start(it.body))
+  } else {
+    it
+  }
+}
+
+#let _lx-trim-end(it) = {
+  if it == none or it == [] or it == "" {
+    []
+  } else if type(it) == str {
+    let t = it.trim(at: end)
+    if t == "" { [] } else { t }
+  } else if type(it) != content {
+    it
+  } else if repr(it) == "space" or repr(it.func()) == "space" {
+    []
+  } else if it.has("text") {
+    let t = it.text.trim(at: end)
+    if t == "" {
+      []
+    } else if t == it.text {
+      it
+    } else {
+      _lx-rewrap(it, t)
+    }
+  } else if it.func() == _lx-seq {
+    let cs = it.children
+    let j = cs.len()
+    while j > 0 {
+      let t = _lx-trim-end(cs.at(j - 1))
+      if t == [] {
+        j -= 1
+      } else {
+        return _lx-join-parts(cs.slice(0, j - 1) + (t,))
+      }
+    }
+    []
+  } else if it.has("child") {
+    _lx-rewrap(it, _lx-trim-end(it.child))
+  } else if it.has("body") {
+    _lx-rewrap(it, _lx-trim-end(it.body))
+  } else {
+    it
+  }
+}
+
+#let _lx-trim(it) = _lx-trim-end(_lx-trim-start(it))
+
+#let _lx-empty-piece(it) = it == none or it == [] or it == ""
+
+/// 按首个 sep 切开 content 树，保留 styled / emph 等包装
+/// 返回 (found, left, right)
+#let _lx-split-once(it, sep) = {
+  if type(it) == str {
+    let parts = it.split(sep)
+    if parts.len() >= 2 {
+      (true, parts.at(0), parts.slice(1).join(sep))
+    } else {
+      (false, it, [])
+    }
+  } else if type(it) != content {
+    (false, it, [])
+  } else if it.has("text") {
+    let (found, l, r) = _lx-split-once(it.text, sep)
+    if found {
+      (true, _lx-rewrap(it, l), _lx-rewrap(it, r))
+    } else {
+      (false, it, [])
+    }
+  } else if it.func() == _lx-seq {
+    let left-acc = ()
+    for (i, child) in it.children.enumerate() {
+      let (found, l, r) = _lx-split-once(child, sep)
+      if found {
+        let left = if _lx-empty-piece(l) { left-acc } else { left-acc + (l,) }
+        let rest = it.children.slice(i + 1)
+        let right = if _lx-empty-piece(r) { rest } else { (r,) + rest }
+        return (true, _lx-join-parts(left), _lx-join-parts(right))
+      }
+      left-acc.push(child)
+    }
+    (false, it, [])
+  } else if it.has("child") {
+    let (found, l, r) = _lx-split-once(it.child, sep)
+    if found {
+      (true, _lx-rewrap(it, l), _lx-rewrap(it, r))
+    } else {
+      (false, it, [])
+    }
+  } else if it.has("body") {
+    let (found, l, r) = _lx-split-once(it.body, sep)
+    if found {
+      (true, _lx-rewrap(it, l), _lx-rewrap(it, r))
+    } else {
+      (false, it, [])
+    }
+  } else {
+    (false, it, [])
   }
 }
 
@@ -56,18 +230,17 @@
   walk(body)
 }
 
-/// 按首个 sep 切成左右纯文本
+/// 按首个 sep 切成左右栏（保留行内样式）
 #let _lx-split(body, sep: "|") = {
-  let plain = _lx-plain(body)
-  let parts = plain.split(sep)
+  let (found, left, right) = _lx-split-once(body, sep)
   assert(
-    parts.len() >= 2,
+    found,
     message: "连线题每一项须用 \"" + sep + "\" 分成左右两部分，例如：提问？ | 答句",
   )
-  let left = parts.at(0).trim()
-  let right = parts.slice(1).join(sep).trim()
-  assert(left != "", message: "连线题左栏（提问）不能为空")
-  assert(right != "", message: "连线题右栏（答句）不能为空")
+  left = _lx-trim(left)
+  right = _lx-trim(right)
+  assert(_lx-plain(left).trim() != "", message: "连线题左栏（提问）不能为空")
+  assert(_lx-plain(right).trim() != "", message: "连线题右栏（答句）不能为空")
   (left, right)
 }
 
@@ -157,8 +330,7 @@
         columns: (marker-width, 1fr),
         column-gutter: 0.1em,
         align: (right + top, left + top),
-        marker,
-        body,
+        marker, body,
       ),
     )
   }).height
@@ -240,7 +412,7 @@
 /// - sep：左右分隔符，默认 "|"
 /// - left-numbering / right-numbering：两侧序号格式
 /// - gutter：左右竖条之间的连线留白（默认 4em）
-#let lx(
+#let lxt(
   seed: 123,
   sep: "|",
   left-numbering: "1. ",

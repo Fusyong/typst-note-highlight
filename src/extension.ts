@@ -56,6 +56,18 @@ async function applyEditResult(
   }
 }
 
+async function runSplitSnt(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "typst") {
+    void vscode.window.showWarningMessage("请在 Typst 源码中使用此命令");
+    return;
+  }
+  const doc = editor.document;
+  const cursors = editor.selections.map((sel) => doc.offsetAt(sel.active));
+  const result = splitSnt(doc.getText(), cursors, { eol: eolOf(doc) });
+  await applyEditResult(editor, result);
+}
+
 function runOnEditor(
   fn: (text: string, start: number, end: number, options?: EditOptions) => EditResult,
 ): () => Promise<void> {
@@ -278,7 +290,7 @@ export function activate(context: vscode.ExtensionContext): void {
       runOnEditor(dispatchNoteAction),
     ),
     vscode.commands.registerCommand("typstBuddy.gotoPair", () => gotoPair()),
-    vscode.commands.registerCommand("typstBuddy.splitSnt", runOnEditor(splitSnt)),
+    vscode.commands.registerCommand("typstBuddy.splitSnt", () => runSplitSnt()),
     vscode.commands.registerCommand("typstBuddy.mergeSnt", runOnEditor(mergeSnt)),
     vscode.commands.registerCommand("typstBuddy.extractNtpBody", () => extractNtpBody()),
     vscode.commands.registerCommand(

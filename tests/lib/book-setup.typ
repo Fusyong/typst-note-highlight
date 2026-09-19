@@ -30,7 +30,8 @@
 #let sizes = (
   /// 古文正文（#ntp）
   body: 2em,
-  /// 句下译（#snt 译文）
+  /// 句下译（#snt 译文）。相对 #ntp 正文字号（sizes.body）；
+  /// 跨页 yi-frag 写入前须 to-absolute，否则在 page.foreground 会按文档基准重算而偏小
   yi: 0.5em,
   /// 行上注文、头上拼音（#nt / #py）
   note: 0.44em,
@@ -57,7 +58,7 @@
   c: cmyk(100%, 0%, 0%, 0%),
   m: cmyk(0%, 100%, 0%, 0%),
   y: cmyk(0%, 0%, 100%, 0%),
-  g: cmyk(0%, 0%, 0%, 50%),
+  g: cmyk(0%, 0%, 0%, 60%),
   chocolate: cmyk(0%, 60%, 0%, 80%),
   olive: cmyk(0%, 0%, 80%, 80%),
   turquoise: cmyk(100%, 0%, 0%, 50%),
@@ -138,7 +139,7 @@
 )
 
 /// 连线题正解线绘制（页背景用；完整 #lx 在文末再导出）
-#import "lx.typ": lx-paint-lines
+#import "lxt.typ": lx-paint-lines
 
 /// #bz：流内仅 metadata（完全不占位）；由 page.background 绘制
 #let _bz-paint-page() = context {
@@ -149,10 +150,11 @@
       continue
     }
     let loc = m.location()
-    let pos = loc.position()
-    if pos.page != page-n {
+    // 用 page()，不用 position().page：后者未定位时是第 1 页
+    if loc.page() != page-n {
       continue
     }
+    let pos = loc.position()
     let region = _snt-region.at(loc)
     let text-left = if region.left > 0pt { region.left } else { pos.x }
     let full-w = if region.width > 1pt {
@@ -205,9 +207,48 @@
   }
 }
 
+/// 跨页译文片段（kind: "yi-frag"）画在 page.foreground
+///
+/// 为何必须绝对绘制：
+/// - #snt 同页续行用相对 place(dy) 即可；相对 place 不能跳到下一页
+/// - #ntp 经 par.line 写入的 body-y 已给出每行正文的 (page, y)，续行应对齐这些坐标
+///
+/// 字号须在 #snt/#ntp 上下文中 to-absolute 后写入 metadata：
+/// - sizes.yi 是 0.5em，相对「当前正文」；#ntp 内正文为 sizes.body（2em）
+/// - page.foreground 的当前字号是文档基准，若把未绝对化的 0.5em 拿到此处再解析，
+///   会变成约一半大。故此处只用 metadata 里已绝对化的 size/fill 重套样式（同 #bz）
+#let _yi-paint-page() = context {
+  let page-n = here().page()
+  for m in query(metadata) {
+    let v = m.value
+    if type(v) != dictionary or v.at("kind", default: none) != "yi-frag" {
+      continue
+    }
+    if v.page != page-n {
+      continue
+    }
+    let w = v.width
+    // 在 foreground 重套样式；size/fill 必须是写入时已绝对化的值
+    let styled = {
+      set text(
+        lang: "zh",
+        region: "CN",
+        font: font-cjk(fonts.song),
+        size: v.size,
+        fill: v.fill,
+        overhang: false,
+      )
+      set par.line(numbering: none)
+      v.body
+    }
+    let locked = box(width: calc.max(w, 1pt), clip: false, styled)
+    place(top + left, dx: v.x, dy: v.y, locked)
+  }
+}
+
 /// 文档设置：纸张、基准字体字号、中文排版默认
 /// 用法：`#show: setup-book` 或 `#show: setup-book.with(size: 12pt)`
-/// - 默认开本 215×297mm（现样张）；基准 10.5pt（五号），#ntp 2em ≈ 21pt
+/// - 默认开本 210×297mm（现样张）；基准 10.5pt（五号），#ntp 2em ≈ 21pt
 /// - 边距默认 auto（约页短边的 2.5/21）；可传字典如 `(x: 2cm, y: 2.5cm)`
 /// - 默认基线距 1.5em：固定字盒 `top-edge: 1em` / `bottom-edge: 0em`，
 ///   `par.leading = par.spacing = 0.5em`（见 `sizes.doc-leading`）；`#ntp` 仍用
@@ -235,10 +276,13 @@
     width: width,
     height: height,
     margin: margin,
-    // #bz 便签 + 连线题正解线画在底层，正文叠其上
+    // #bz 便签 + 连线题正解线画在底层；跨页译文 yi-frag 画在前景（可跳页，见 _yi-paint-page）
     background: {
       _bz-paint-page()
       lx-paint-lines()
+    },
+    foreground: {
+      _yi-paint-page()
     },
   )
   // 固定字盒，使基线距 = 1em + leading，不随字体 metrics 漂移
@@ -262,10 +306,26 @@
   )
   set block(spacing: 1.2em)
   // 着重（*…* / strong）改为汉字下加点，西文仍走 strong 默认
+  // 用 underline 圆点虚线：点位由 1em 周期 + phase 0.5em 几何居中，
+  // 不依赖 · 字形轴承（楷体偏右）或 place（在 first-line-indent: all 下会插空白）。
+  // 约束：text.tracking 须为 0（本样张未设）。
+  // 必须用 content.body 拆掉 strong：若返回 content，CJK 仍会换 Bold 面/伪粗，与加点叠加。
   show strong: content => {
-    show regex("\p{Hani}"): it => box(
-      place(text("·", size: 0.8em), dx: 0.375em, dy: 0.75em) + it,
-    )
+    show regex("\p{Hani}+"): s => {
+      set text(weight: "regular")
+      underline(
+        offset: 0.18em,
+        stroke: (
+          paint: text.fill,
+          thickness: 0.11em,
+          cap: "round",
+          dash: (array: (0em, 1em), phase: 0.5em),
+        ),
+        s,
+      )
+    }
+    // 西文与数字单独恢复加粗（strong 已拆掉）
+    show regex("[\p{Latin}\p{N}]+"): s => text(weight: "bold", s)
     content.body
   }
   doc
@@ -322,8 +382,17 @@
   )
 }
 
+/// 同页伪行合并阈值。
+/// 无注时正文基线距 = 1em + leading（约 2.2em）。伪行常贴在真行下 0.4–0.9em。
+/// 用基线距的 0.85 作门槛，而不是写死 55pt：字号 12pt 时真行距约 53pt，
+/// 写死 55pt 会把真行并掉。
+#let _line-gap-floor() = {
+  calc.max(_sizes-body-stride() * 0.85, 36pt)
+}
+
 /// 从本段 body-y 取典型正间距（同页相邻行中位数；忽略过近伪标记）
 #let _stride-from-ys(ys) = {
+  let floor = _line-gap-floor()
   let gaps = ()
   if ys.len() >= 2 {
     for i in range(ys.len() - 1) {
@@ -332,7 +401,7 @@
       if a.page == b.page {
         let d = b.y - a.y
         // 正文行距通常 > 正文身 + leading；过近多为振荡重复标记
-        if d > 55pt {
+        if d > floor {
           gaps.push(d)
         }
       }
@@ -352,24 +421,40 @@
   if measured != none { measured } else { _ntp-stride-fallback() }
 }
 
-/// 将 body-y 标记列表收成 (page, y) 序列
-#let _line-ys-reduce(marks) = {
-  // 按行号去重（同一 n 只留首次），并记下页码
-  let by-n = (:)
-  for m in marks {
-    let n = m.value.at("n", default: none)
-    if n != none {
-      let key = str(n)
-      if by-n.at(key, default: none) == none {
-        let p = m.location().position()
-        by-n.insert(key, (page: p.page, y: p.y))
-      }
-    }
+/// 版心下沿（不含下边距）。auto 边距按 2cm 估，与历史样张一致。
+#let _page-content-bottom() = {
+  let m = page.margin
+  let raw = if type(m) == dictionary {
+    m.at("bottom", default: m.at("y", default: 2cm))
+  } else {
+    m
   }
-  let keys = by-n.keys().map(int).sorted()
-  let raw = keys.map(k => by-n.at(str(k)))
-  // 页内合并过近标记（振荡时常出现 ~40pt 伪行）；换页时 y 变小，绝不能当成「过近」丢掉
-  let merge-gap = 55pt
+  let bottom = if raw == auto { 2cm } else { raw }
+  page.height - bottom.to-absolute()
+}
+
+/// 将 body-y 标记列表收成 (page, y) 序列
+/// 页码必须用 location().page()（物理页）。
+/// location().position().page 在位置未稳定时会变成第 1 页、(0, 0)
+/// （编译警告 element position did not stabilize），不能拿来当页码。
+/// 行号 n 也不能当键：内层 set par.line(numbering: none) 会把计数器打成 0，
+/// 按 n 去重就只剩第 1 页第一行，续行全部被排回前一页。
+#let _line-ys-reduce(marks) = {
+  let raw = ()
+  for m in marks {
+    let loc = m.location()
+    let page = loc.page()
+    let pos = loc.position()
+    // 页码对不上，或 y 落在原点：这一条位置无效，丢掉，不要记成第 1 页
+    if page < 1 or pos.page != page or pos.y <= 15pt {
+      continue
+    }
+    raw.push((page: page, y: pos.y))
+  }
+  // 按阅读顺序（页、y）。不要按行号：行号会跨页重号，也会整篇都是 0。
+  let raw = raw.sorted(key: pt => pt.page * 1000000.0 + pt.y.pt())
+  // 页内合并过近标记（振荡时常出现贴着真行的伪行）；换页时 y 变小，绝不能当成「过近」丢掉
+  let merge-gap = _line-gap-floor()
   let ys = ()
   for pt in raw {
     let keep = if ys.len() == 0 {
@@ -437,10 +522,11 @@
   }
 }
 
-/// 译文第 i 行相对锚点的 dy
+/// 译文第 i 行相对锚点的 dy（仅同页；跨页由调用方改走 yi-frag 绝对绘制）
 /// - 第 0 行：恒为 dy0（跟当前活锚点）
 /// - 续行：累加 body-y 相邻差分（相对量＝各行正文+注+拼实际总高）；不要求 ys[k]≈pos0
-/// - 差分不可用时用偏松的 fallback，避免译文叠进下一行正文
+/// - 相邻两点若换页或间距不超过 _line-gap-floor()，视为差分不可用 → fallback（此时调用方应再检查
+///   _yi-target，避免把续行相对放到本页页底或更早的页）
 #let _yi-line-dy(all-ys, k, i, pos-y, dy0, fallback-stride) = {
   if i == 0 {
     dy0
@@ -456,7 +542,7 @@
           break
         }
         let d = b.y - a.y
-        if d <= 55pt {
+        if d <= _line-gap-floor() {
           ok = false
           break
         }
@@ -471,6 +557,97 @@
   }
 }
 
+/// 贴页底的换页残留。
+/// 正文已经排到下一页，本页却还留下一条基线贴着版心下沿的空行（零宽锚点或测高失败）。
+/// 续行若对齐它，短行译文就会落在本页页末空白，而不是下一页行首。
+/// - 基线距版心下沿不足一个正文字盒，且后面已有更后页的行
+/// - 几乎贴死下沿（< 6pt）一律算残留
+/// - 否则还要求它离同页上一行明显大于本段中位行距，以免误伤「刚好排满」的真实行
+#let _yi-bottom-spill(all-ys, j, page-bottom, body-em) = {
+  let t = all-ys.at(j)
+  let clearance = page-bottom - t.y
+  if clearance >= body-em {
+    false
+  } else {
+    let later = false
+    let u = j
+    while u + 1 < all-ys.len() {
+      u += 1
+      if all-ys.at(u).page > t.page {
+        later = true
+        break
+      }
+    }
+    if not later {
+      false
+    } else if clearance < 6pt {
+      true
+    } else {
+      let prev-y = none
+      let p = j
+      while p > 0 {
+        p -= 1
+        let a = all-ys.at(p)
+        if a.page == t.page {
+          prev-y = a.y
+          break
+        }
+      }
+      if prev-y == none {
+        false
+      } else {
+        let gap = t.y - prev-y
+        let med = _stride-from-ys(all-ys)
+        let med = if med == none { _sizes-body-stride() } else { med }
+        gap > med * 1.12
+      }
+    }
+  }
+}
+
+/// 从锚点行 k 向后数第 i 条有效正文行，返回 (idx, pt)；没有则 none。
+/// 跳过：更早的页（行号乱序时会把续行画回前一页）、锚点上方的回跳、贴页底残留。
+/// i = 0 就是 k 本身（锚点行），不跳过。
+#let _yi-target(all-ys, k, i, anchor-page, anchor-y, page-bottom, body-em) = {
+  if k < 0 or k >= all-ys.len() {
+    none
+  } else if i == 0 {
+    (idx: k, pt: all-ys.at(k))
+  } else {
+    let need = i
+    let j = k
+    let found = none
+    while j + 1 < all-ys.len() and found == none {
+      j += 1
+      let t = all-ys.at(j)
+      let skip = (
+        t.page < anchor-page
+          or (t.page == anchor-page and t.y + 2pt < anchor-y)
+          or _yi-bottom-spill(all-ys, j, page-bottom, body-em)
+      )
+      if not skip {
+        need -= 1
+        if need == 0 {
+          found = (idx: j, pt: t)
+        }
+      }
+    }
+    found
+  }
+}
+
+/// 锚点页之后的第一行正文（all-ys 已按页、y 排序）。没有则 none。
+#let _yi-first-later-page(all-ys, anchor-page) = {
+  let found = none
+  for pt in all-ys {
+    if pt.page > anchor-page {
+      found = pt
+      break
+    }
+  }
+  found
+}
+
 /// 注·译·拼集成段落（楷体大字；可含连续段落与 #snt / #nt / #py）
 /// - id：默认 auto（内部流水 ntp-N）；也可手写字符串。body-y / region 一律带此 id，同页多段互不串
 /// - 版心宽度须用实测 text-left（page.width - 2*text-left），与 #snt 锚点一致；
@@ -478,94 +655,109 @@
 #let ntp(body, id: auto) = {
   // [#step#context] 保证 counter 步进进入文档流后再 get
   [#_ntp-seq.step()#context {
-    let ntp-id = if id == auto {
-      "ntp-" + str(_ntp-seq.get().first())
-    } else {
-      id
-    }
-    // 上一遍本段 body-y；若本段已有可用缓存则冻结，减轻振荡
-    let prev-ys = _line-ys-from-meta(ntp-id)
-    set text(
-      font: font-cjk(fonts.kai),
-      size: sizes.body,
-      fill: colors.chocolate,
-      top-edge: 1em,
-      bottom-edge: 0pt,
-    )
-    set par(
-      justify: true,
-      first-line-indent: (amount: 2em, all: true),
-      leading: sizes.body-leading,
-      spacing: sizes.body-leading,
-    )
-    let text-left = here().position().x
-    let full-w = page.width - 2 * text-left
-    let cached = _snt-region.get()
-    let line-ys = if (
-      cached.at("ntp-id", default: none) == ntp-id
-        and cached.at("line-ys", default: ()).len() >= 2
-        and prev-ys.len() == cached.line-ys.len()
-    ) {
-      // 行数不变则冻结，避免 73↔90 间来回抖
-      cached.line-ys
-    } else if prev-ys.len() >= 2 {
-      prev-ys
-    } else {
-      cached.at("line-ys", default: ())
-    }
-    let stride0 = {
-      let m = _stride-from-ys(line-ys)
-      if m != none { m } else { _ntp-stride-fallback() }
-    }
-    _snt-region.update((
-      left: text-left,
-      width: full-w,
-      stride: stride0,
-      ntp-id: ntp-id,
-      line-ys: line-ys,
-    ))
-    if _snt-debug-on() {
-      let p = here().position()
-      metadata((
-        kind: "ntp-debug",
-        page: p.page,
-        x: p.x,
-        y: p.y,
-        text-left: text-left,
-        full-w: full-w,
-        stride: stride0,
-        page-w: page.width,
-        prev-ys: line-ys,
-        prev-ys-len: line-ys.len(),
-        id: ntp-id,
-      ))
-    }
-    block(
-      width: 100%,
-      breakable: true,
-      inset: (top: 0.6em, bottom: 0.4em),
-      {
-        context {
-          let block-left = here().position().x
-          _snt-region.update(r => (
-            left: block-left,
-            width: r.width,
-            stride: r.stride,
-            ntp-id: r.ntp-id,
-            line-ys: r.line-ys,
-          ))
+      let ntp-id = if id == auto {
+        "ntp-" + str(_ntp-seq.get().first())
+      } else {
+        id
+      }
+      // 上一遍 body-y。放在 set text 之前：查询若跟在正文字号后面，
+      // 会和 par.line 计数器互相拉扯，隔遍 metadata 变成 0，页码也就丢了。
+      let prev-ys = _line-ys-from-meta(ntp-id)
+      set text(
+        font: font-cjk(fonts.kai),
+        size: sizes.body,
+        fill: colors.chocolate,
+        top-edge: 1em,
+        bottom-edge: 0pt,
+      )
+      set par(
+        justify: true,
+        first-line-indent: (amount: 2em, all: true),
+        leading: sizes.body-leading,
+        spacing: sizes.body-leading,
+      )
+      let text-left = here().position().x
+      let full-w = page.width - 2 * text-left
+      let cached = _snt-region.get()
+      let cached-ys = cached.at("line-ys", default: ())
+      // 行数相同且每一行仍在同一页才冻结。页末伪行会在前后页之间跳，
+      // 只看条数会把续行钉死在错误页上。
+      let ys-same-pages = if (
+        cached.at("ntp-id", default: none) != ntp-id
+          or cached-ys.len() < 2
+          or prev-ys.len() != cached-ys.len()
+      ) {
+        false
+      } else {
+        let ok = true
+        for i in range(prev-ys.len()) {
+          if prev-ys.at(i).page != cached-ys.at(i).page {
+            ok = false
+          }
         }
-        set par.line(
-          numbering: n => {
-            metadata((kind: "body-y", id: ntp-id, n: n))
-            []
-          },
-          number-clearance: 0pt,
-        )
-        _as-par(body)
-      },
-    )
-  }]
+        ok
+      }
+      let line-ys = if ys-same-pages {
+        cached-ys
+      } else if prev-ys.len() >= 2 {
+        prev-ys
+      } else {
+        cached-ys
+      }
+      let stride0 = {
+        let m = _stride-from-ys(line-ys)
+        if m != none { m } else { _ntp-stride-fallback() }
+      }
+      _snt-region.update((
+        left: text-left,
+        width: full-w,
+        stride: stride0,
+        ntp-id: ntp-id,
+        line-ys: line-ys,
+      ))
+      if _snt-debug-on() {
+        let p = here().position()
+        metadata((
+          kind: "ntp-debug",
+          page: p.page,
+          x: p.x,
+          y: p.y,
+          text-left: text-left,
+          full-w: full-w,
+          stride: stride0,
+          page-w: page.width,
+          prev-ys: line-ys,
+          prev-ys-len: line-ys.len(),
+          id: ntp-id,
+        ))
+      }
+      block(
+        width: 100%,
+        breakable: true,
+        inset: (top: 0.6em, bottom: 0.4em),
+        {
+          context {
+            let block-left = here().position().x
+            _snt-region.update(r => (
+              left: block-left,
+              width: r.width,
+              stride: r.stride,
+              ntp-id: r.ntp-id,
+              line-ys: r.line-ys,
+            ))
+          }
+          set par.line(
+            // body-y：每行正文的 (page,y)，供 #snt 同页差分行距与跨页 yi-frag 绝对定位
+            numbering: n => {
+              metadata((kind: "body-y", id: ntp-id, n: n))
+              []
+            },
+            number-clearance: 0pt,
+          )
+          _as-par(body)
+        },
+      )
+    }]
 }
 
 /// 注释区块（后文可换成脚注 / 旁注 / 夹注）
@@ -680,6 +872,8 @@
 /// - atoms：字簇（str）可断；#nt 整段不可断
 /// - fits-one-line(slice, width)：用 Typst 段落测定「能否单行排下」（与正文同一套折行引擎）
 /// - 在测定结果上再应用行首/行末禁则，避免标点落行首（避头点）
+/// - 调用方须保证 first-indent < full-w（行末滞留时先把 indent 置 0）；否则首宽会落到
+///   max(..., 1pt)，只挤进一字，看起来像译文丢失
 /// 返回每行已 join 的 content（可含 #nt）
 #let _yi-break-atoms(atoms, fits-one-line, first-indent, full-w) = {
   if atoms.len() == 0 {
@@ -866,18 +1060,12 @@
 /// 将 body 按换行拆成行；每行再 _trim；空白行（含仅空白字符的行）丢掉
 #let _split-content-lines(body) = {
   if type(body) == str {
-    body
-      .split(regex("\r\n|\r|\n"))
-      .map(l => l.trim())
-      .filter(l => not _is-blank-string(l))
+    body.split(regex("\r\n|\r|\n")).map(l => l.trim()).filter(l => not _is-blank-string(l))
   } else if type(body) != content {
     let s = str(body).trim()
     if _is-blank-string(s) { () } else { (s,) }
   } else if body.has("text") {
-    body.text
-      .split(regex("\r\n|\r|\n"))
-      .map(l => l.trim())
-      .filter(l => not _is-blank-string(l))
+    body.text.split(regex("\r\n|\r|\n")).map(l => l.trim()).filter(l => not _is-blank-string(l))
   } else if body.has("children") {
     let lines = ()
     let cur = ()
@@ -961,8 +1149,8 @@
 }
 
 /// 拼音内容：按空格分音节后横向拼接，避免段落在窄宽下把多音节竖折
-#let _py-reading-line(reading, size: sizes.note, c: "c") = {
-  let reading-color = colors.at(c, default: colors.c)
+#let _py-reading-line(reading, size: sizes.note, c: "g") = {
+  let reading-color = colors.at(c, default: colors.g)
   let parts = _plain-text(reading).split(" ").filter(s => s != "")
   set text(
     font: fonts.pinyin,
@@ -984,13 +1172,13 @@
 /// - 零宽锚点叠在汉字前，底字仍走正文流
 /// - 拼音与汉字之间 wj 禁止断行；拼音比字宽时左右撑开字距
 /// - 多音节拼音同一行横排（放置时固定测定宽度，防止零宽父盒内再竖折）
-/// - c：拼音色键，默认 "c"
+/// - c：拼音色键，默认 "g"（灰）
 #let _py-render(
   word,
   reading,
   size: sizes.note,
   gap: sizes.note-gap,
-  c: "c",
+  c: "g",
 ) = context {
   set par.line(numbering: none)
   let reading-line = _py-reading-line(reading, size: size, c: c)
@@ -1029,7 +1217,7 @@
 }
 
 /// #py 节点：metadata（供 #snt 遍历）+ 实际绘制（metadata 本身不可见）
-#let _py-node(word, reading, size: sizes.note, gap: sizes.note-gap, c: "c") = {
+#let _py-node(word, reading, size: sizes.note, gap: sizes.note-gap, c: "g") = {
   [#metadata((
       kind: "py",
       word: word,
@@ -1068,9 +1256,9 @@
   }
   let walk(it) = {
     if type(it) == str {
-      if it == "" { () } else { ((reading: none, body: it, size: sizes.note, gap: sizes.note-gap, c: "c"),) }
+      if it == "" { () } else { ((reading: none, body: it, size: sizes.note, gap: sizes.note-gap, c: "g"),) }
     } else if type(it) != content {
-      ((reading: none, body: it, size: sizes.note, gap: sizes.note-gap, c: "c"),)
+      ((reading: none, body: it, size: sizes.note, gap: sizes.note-gap, c: "g"),)
     } else if kind-of(it) == "py" {
       let v = _annot-payload(it)
       (
@@ -1079,12 +1267,12 @@
           body: v.word,
           size: v.at("size", default: sizes.note),
           gap: v.at("gap", default: sizes.note-gap),
-          c: v.at("c", default: "c"),
+          c: v.at("c", default: "g"),
         ),
       )
     } else if it.has("text") {
       if it.text == "" { () } else {
-        ((reading: none, body: it, size: sizes.note, gap: sizes.note-gap, c: "c"),)
+        ((reading: none, body: it, size: sizes.note, gap: sizes.note-gap, c: "g"),)
       }
     } else if it.has("children") {
       let out = ()
@@ -1107,7 +1295,7 @@
     } else if it.has("body") {
       walk(it.body)
     } else {
-      ((reading: none, body: it, size: sizes.note, gap: sizes.note-gap, c: "c"),)
+      ((reading: none, body: it, size: sizes.note, gap: sizes.note-gap, c: "g"),)
     }
   }
   walk(word)
@@ -1403,9 +1591,7 @@
       if v.at("from-notes", default: false) {
         if i >= notes.len() {
           panic(
-            "notes: 条数不足（已用尽 "
-              + str(notes.len())
-              + " 条，正文中仍有未填的轻锚点 #ntw[词] 等）",
+            "notes: 条数不足（已用尽 " + str(notes.len()) + " 条，正文中仍有未填的轻锚点 #ntw[词] 等）",
           )
         }
         (
@@ -1430,9 +1616,7 @@
           if v.at("from-notes", default: false) {
             if i2 >= notes.len() {
               panic(
-                "notes: 条数不足（已用尽 "
-                  + str(notes.len())
-                  + " 条，正文中仍有未填的轻锚点 #ntw[词] 等）",
+                "notes: 条数不足（已用尽 " + str(notes.len()) + " 条，正文中仍有未填的轻锚点 #ntw[词] 等）",
               )
             }
             out.push(_nt-from-payload(v, v.word, note: notes.at(i2), from-notes: false))
@@ -1477,11 +1661,7 @@
   let (out, used) = walk(body, 0)
   if used != notes.len() {
     panic(
-      "notes: 条数过多（提供 "
-        + str(notes.len())
-        + " 条，正文轻锚点只需 "
-        + str(used)
-        + " 条）",
+      "notes: 条数过多（提供 " + str(notes.len()) + " 条，正文轻锚点只需 " + str(used) + " 条）",
     )
   }
   out
@@ -1619,6 +1799,7 @@
 /// - 译文按本段实测 body-y 逐行放置（行距随该行注/拼实际高度变；无 ys 时回退估计）
 /// - 折行条件看本句古文/译文相对本行剩余宽
 /// - 译文零宽锚点 + wj 粘合古文；定位用外层 pos0
+/// - 跨页续行：相对 place 不能跳页 → 写 yi-frag（含绝对字号），由 page.foreground 绘制
 /// - 第一处对齐位置画一根竖线（高度＝译文行高）；色键 c 同 #nt（默认 c）；译文同色
 #let snt(wen, yi, ..args) = context {
   let pos = args.pos()
@@ -1665,31 +1846,41 @@
     calc.max(page.width - 2 * x, 100pt)
   }
   let ntp-id = region.at("ntp-id", default: none)
-  // 用 ntp 入口缓存的本段 body-y（实际行高差）；避免每个 snt 现场 query 加剧振荡
-  let all-ys = region.at("line-ys", default: ())
+  // 优先用 ntp 入口缓存的本段 body-y；若尚未写入（首遍/振荡）则现场按 id query
+  // （跨页续行依赖 (page,y)；缓存为空时相对 place 会把译文挤在本页页底）
+  let all-ys = {
+    let cached = region.at("line-ys", default: ())
+    if cached.len() >= 2 {
+      cached
+    } else {
+      _line-ys-from-meta(ntp-id)
+    }
+  }
   let fallback-stride = {
     let s = if region.stride > 30pt { region.stride } else { _ntp-stride(ys: all-ys) }
     if s > 30pt { s } else { _ntp-stride-fallback() }
   }
   let dy0 = dy.to-absolute()
   let stroke-color = colors.at(c, default: colors.c)
+  // 跨页 yi-frag 用：在 #ntp 上下文绝对化，避免 foreground 按文档基准重算 0.5em
+  let yi-size-abs = sizes.yi.to-absolute()
   let tick-w = 1.6pt
 
   let pos0 = here().position()
-  let bottom-m = {
-    let m = page.margin
-    let raw = if type(m) == dictionary {
-      m.at("bottom", default: m.at("y", default: 2cm))
-    } else {
-      m
-    }
-    if raw == auto { 2cm } else { raw }
-  }
-  let remain-y = page.height - bottom-m.to-absolute() - pos0.y
+  let page-bottom = _page-content-bottom()
+  let remain-y = page-bottom - pos0.y
   let near-end = false
 
   let first-indent = calc.max(pos0.x - text-left, 0pt)
   let remain-x = calc.max(full-w - first-indent, 0pt)
+
+  // 零宽译文锚点可挤在行末，古文首字却放不下 → 正文换到下行而锚点仍停在行末。
+  // 此时 remain-x≈0、first-indent≈full-w，折行首宽被压成 1pt，译文只剩一字（如「孟」）。
+  // 判定：本行剩余不足以放下一个正文字 → 视为锚点滞留行末，改按下一行顶格排译。
+  let body-char-w = measure([国]).width
+  let eol-stuck = remain-x + 0.5pt < body-char-w
+  let first-indent = if eol-stuck { 0pt } else { first-indent }
+  let remain-x = if eol-stuck { full-w } else { remain-x }
 
   let yi-line-h = measure({
     set text(
@@ -1753,18 +1944,40 @@
   let wen-spans = wen-w > remain-x + 0.5pt
   let yi-overflow-line = yi-nat-w > remain-x + 0.5pt
   let yi-overflow-page = yi-nat-w > full-w + 0.5pt
-  let allow-yi-wrap = wen-spans or yi-overflow-page or yi-overflow-line
+  // 行末滞留时必须走逐行放置（且用 abs/yi-frag）：相对 place 挂在行末零宽盒上会
+  // 被行框裁掉，表现为整句译文消失
+  let allow-yi-wrap = wen-spans or yi-overflow-page or yi-overflow-line or eol-stuck
 
-  let k = _yi-line-index(all-ys, pos0.page, pos0.y)
+  let body-em = 1em.to-absolute()
+  let k-raw = _yi-line-index(all-ys, pos0.page, pos0.y)
+  // 锚点滞留行末时，译文应对齐「正文实际所在」的下一有效行（跳过贴页底残留、不回到更早的页）
+  let eol-next = if eol-stuck {
+    _yi-target(all-ys, k-raw, 1, pos0.page, pos0.y, page-bottom, body-em)
+  } else {
+    none
+  }
+  let k = if eol-next != none { eol-next.idx } else { k-raw }
   // 调试/回退：到下一正文行的实测距
   let stride = if all-ys.len() > k + 1 and all-ys.at(k).page == all-ys.at(k + 1).page {
     let d = all-ys.at(k + 1).y - all-ys.at(k).y
-    if d > 55pt { d } else { fallback-stride }
+    if d > _line-gap-floor() { d } else { fallback-stride }
   } else {
     fallback-stride
   }
   let yi-leading = calc.max(stride - yi-line-h, 0pt)
   let place-dx0 = text-left - pos0.x
+  // 相对 place 的 dy0：滞留行末时把第 0 行抬到正文换行后的基线
+  let dy0-place = if eol-stuck {
+    if k > k-raw and all-ys.at(k).page == pos0.page {
+      (all-ys.at(k).y - pos0.y) + dy0
+    } else if k > k-raw {
+      dy0 // 跨页：第 0 行走 abs（见 yi-line-plans）
+    } else {
+      fallback-stride + dy0 // 尚无下一行 body-y，先按估计行距下移
+    }
+  } else {
+    dy0
+  }
   // 调试用：均匀 leading 的对照块（实际绘制改用逐行绝对 dy）
   let yi-wrapped = block(
     width: full-w,
@@ -1780,15 +1993,75 @@
     }),
   )
 
-  // 逐行绝对放置：第 i 行 dy = (body-y[k+i] - pos0.y) + dy0
-  // 行距取自实测相邻正文基线距（已含该行注/拼实际总高），不再用固定倍数
-  let yi-line-dys = {
+  // 逐行放置（同页相对 / 跨页绝对）：
+  // 1) _yi-target 从锚点向后数有效正文行：跳过更早页、锚点上方回跳、贴页底残留
+  // 2) 目标在别页 → abs（yi-frag）；同页则用两行 body-y 的差作相对 dy
+  // 3) 没有测到目标、且相对 dy 越出版心下沿 → 改挂下一页首行；否则留在本页（按行距回退）
+  //    abs 片段写入 metadata，由 _yi-paint-page 绘制（须带绝对 size/fill）
+  let yi-line-plans = {
     let out = ()
     for (i, _) in yi-lines.enumerate() {
-      out.push(_yi-line-dy(all-ys, k, i, pos0.y, dy0, fallback-stride))
+      let target = _yi-target(all-ys, k, i, pos0.page, pos0.y, page-bottom, body-em)
+      let x-indent = if i == 0 { first-indent } else { 0pt }
+      // 行末滞留：锚点在上行行末，相对 place 易被裁掉 → 全部改绝对 yi-frag
+      if eol-stuck {
+        let abs = if target != none and target.pt.page >= pos0.page {
+          (
+            page: target.pt.page,
+            x: text-left + x-indent,
+            y: target.pt.y + dy0,
+          )
+        } else {
+          (
+            page: pos0.page,
+            x: text-left + x-indent,
+            y: pos0.y + dy0-place + i * fallback-stride,
+          )
+        }
+        out.push((kind: "abs", abs: abs, dy: none))
+      } else if target != none and target.pt.page != pos0.page and target.pt.page > pos0.page {
+        out.push((
+          kind: "abs",
+          abs: (page: target.pt.page, x: text-left, y: target.pt.y + dy0),
+          dy: none,
+        ))
+      } else if target != none and i > 0 and k < all-ys.len() {
+        let dy-i = dy0 + target.pt.y - all-ys.at(k).y
+        if pos0.y + dy-i > page-bottom + 2pt {
+          let nxt = _yi-first-later-page(all-ys, pos0.page)
+          if nxt != none {
+            out.push((
+              kind: "abs",
+              abs: (page: nxt.page, x: text-left, y: nxt.y + dy0),
+              dy: none,
+            ))
+          } else {
+            out.push((kind: "rel", abs: none, dy: dy-i))
+          }
+        } else {
+          out.push((kind: "rel", abs: none, dy: dy-i))
+        }
+      } else {
+        let dy-i = if i == 0 { dy0-place } else { dy0 + i * fallback-stride }
+        if i > 0 and pos0.y + dy-i > page-bottom + 2pt {
+          let nxt = _yi-first-later-page(all-ys, pos0.page)
+          if nxt != none {
+            out.push((
+              kind: "abs",
+              abs: (page: nxt.page, x: text-left, y: nxt.y + dy0),
+              dy: none,
+            ))
+          } else {
+            out.push((kind: "rel", abs: none, dy: dy-i))
+          }
+        } else {
+          out.push((kind: "rel", abs: none, dy: dy-i))
+        }
+      }
     }
     out
   }
+  let yi-line-dys = yi-line-plans.map(p => p.dy)
 
   let yi-placed = if allow-yi-wrap {
     place(
@@ -1797,8 +2070,6 @@
       dy: 0pt,
       box(width: 0pt, height: 0pt, clip: false, {
         for (i, line) in yi-lines.enumerate() {
-          let dx-i = place-dx0 + (if i == 0 { first-indent } else { 0pt })
-          let dy-i = yi-line-dys.at(i)
           // 必须锁宽：零宽父级内未锁宽 → 可用宽被压成 0 → 一字一行
           // line 可为含 #nt 的 content（折行仍保留框）
           let piece = yi-style(box(line))
@@ -1806,12 +2077,29 @@
             let m = measure(piece)
             if m.width > 1pt { m.width } else { measure-yi(line) }
           }
-          place(
-            top + left,
-            dx: dx-i,
-            dy: dy-i,
-            box(width: calc.max(pw, 1pt), clip: false, piece),
-          )
+          let plan = yi-line-plans.at(i)
+          if plan.kind == "abs" {
+            let cross = plan.abs
+            // 只存原文行 + 绝对字号/色；样式在 _yi-paint-page 重套（同 #bz）
+            metadata((
+              kind: "yi-frag",
+              page: cross.page,
+              x: cross.x,
+              y: cross.y,
+              width: calc.max(pw, 1pt),
+              size: yi-size-abs,
+              fill: stroke-color,
+              body: box(line),
+            ))
+          } else {
+            let dx-i = place-dx0 + (if i == 0 { first-indent } else { 0pt })
+            place(
+              top + left,
+              dx: dx-i,
+              dy: plan.dy,
+              box(width: calc.max(pw, 1pt), clip: false, piece),
+            )
+          }
         }
       }),
     )
@@ -1819,18 +2107,21 @@
     let probe = yi-style(box(yi-body))
     let m = measure(probe)
     let w = if m.width > 1pt { m.width } else { full-w }
+    // 通常 dx=0 对齐古文起点；行末滞留时古文已换行，须移到版心左缘
     place(
       top + left,
-      dx: 0pt,
-      dy: dy0,
+      dx: if eol-stuck { place-dx0 } else { 0pt },
+      dy: dy0-place,
       box(width: w, clip: false, yi-nowrap),
     )
   }
 
   let opt-shift = 0.06em.to-absolute()
+  // 竖线右缘对齐古文起点；行末滞留时古文在下行行首（text-left）
   let tick = place(
-    top + right,
-    dy: dy0 + opt-shift,
+    top + left,
+    dx: (if eol-stuck { place-dx0 } else { 0pt }) - tick-w,
+    dy: dy0-place + opt-shift,
     box(width: tick-w, height: yi-line-h, fill: stroke-color),
   )
 
@@ -1903,7 +2194,7 @@
           + " yi-lines="
           + str(yi-lines.len())
           + " dys=["
-          + yi-line-dys.map(_fmt-pt).join(", ")
+          + yi-line-dys.map(d => if d == none { "abs" } else { _fmt-pt(d) }).join(", ")
           + "]"
           + "\n  all-ys=["
           + _fmt-ys(all-ys)
@@ -1916,6 +2207,8 @@
           + repr(wen-spans)
           + "\n  allow-yi-wrap="
           + repr(allow-yi-wrap)
+          + " eol-stuck="
+          + repr(eol-stuck)
           + " near-end="
           + repr(near-end)
           + " remain-y="
@@ -1955,6 +2248,7 @@
         yi-nat-w: yi-nat-w,
         wen-spans: wen-spans,
         allow-yi-wrap: allow-yi-wrap,
+        eol-stuck: eol-stuck,
         near-end: near-end,
         remain-y: remain-y,
         m-wrap-w: m-wrap.width,
@@ -1990,7 +2284,7 @@
   reading,
   size: sizes.note,
   gap: sizes.note-gap,
-  c: "c",
+  c: "g",
 ) = _py-node(word, reading, size: size, gap: gap, c: c)
 
 /// 行上注：#nt[被注词][注释正文]；仅加框（无 notes 时）：#nt[被注词]
@@ -2098,13 +2392,25 @@
 #import "exercise.typ": exercise-answer-color, exercise-debug, exercise-debug-on
 
 /// 连线练习题（lx-paint-lines 已在前文导入供页背景；此处导出 #lx）
-#import "lx.typ": lx
+#import "lxt.typ": lxt
 
-/// 选择题（实现见 xt.typ）；题干+选项；+/- 对错；cols 控制一行/分行
-#import "xt.typ": xt
+/// 选择题（实现见 xzt.typ）；题干+选项；+/- 对错；cols 控制一行/分行
+#import "xzt.typ": xzt
 
-/// 排序题（实现见 px.typ）；书写顺序为正解；seed 乱序；项前括号填透明序号
-#import "px.typ": px
+/// 判断对错（实现见 pdt.typ）；+/- 正误；括号内填 ✓/✗
+#import "pdt.typ": pdt
+
+/// 划掉错误选项（实现见 hct.typ）；句中 #hct[词][+ 正 | - 误]，错误项叠 \
+#import "hct.typ": hct
+
+/// 勾选正确选项（实现见 gzt.typ）；句中 #gzt[词][+ 正 | - 误]，正确项叠 ✓
+#import "gzt.typ": gzt
+
+/// 文中画线（实现见 hxt.typ）；句中 #hxt[词]，词语下画线
+#import "hxt.typ": hxt
+
+/// 排序题（实现见 pxt.typ）；书写顺序为正解；seed 乱序；项前括号填透明序号
+#import "pxt.typ": pxt
 
 /// 田字格抄写（实现见 tzg.typ）；默认楷体底字 + 工程拼音字体 + 品红格线
 #import "tzg.typ": tzg as _tzg-core
@@ -2128,3 +2434,8 @@
     pinyin-ratio: pinyin-ratio,
   )
 }
+
+// 楷体文本
+// #let kai(body) = text(font: fonts.kai, body)
+#let kai = text.with(font: fonts.kai)
+#let fang = text.with(font: fonts.fang)

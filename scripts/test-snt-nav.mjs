@@ -231,7 +231,8 @@ for (const name of ["样张-中段.typ", "样张-高段.typ"]) {
 
 // —— 拆分 ——
 const splitAt = sample.indexOf("，田中");
-const split = splitSnt(sample, splitAt, splitAt);
+const yiSplitAt = sample.indexOf("，田里");
+const split = splitSnt(sample, [splitAt, yiSplitAt]);
 assert("逗号处拆分成功", split.ok, split.error);
 if (split.ok) {
   const two = findSntCalls(split.newText);
@@ -273,52 +274,72 @@ if (split.ok) {
 }
 
 const insideMacro = sample.indexOf("#ntj[有耕者]") + 6;
-const splitInside = splitSnt(sample, insideMacro, insideMacro);
+const splitInside = splitSnt(sample, [insideMacro, yiSplitAt]);
 assert("宏内拒绝拆分", !splitInside.ok);
 
-const splitEdge = splitSnt(sample, sample.indexOf("#ntw[宋人]"), sample.indexOf("#ntw[宋人]"));
-assert("块首附近不产生空古文", splitEdge.ok ? blockNonEmptySplit(splitEdge.newText) : true, splitEdge.ok ? splitEdge.newText : splitEdge.error);
+const splitEdge = splitSnt(sample, [sample.indexOf("#ntw[宋人]"), yiSplitAt]);
+assert(
+  "块首拆分会拒绝空正文",
+  !splitEdge.ok && splitEdge.error.includes("为空"),
+  splitEdge.ok ? splitEdge.newText : splitEdge.error,
+);
 
-function blockNonEmptySplit(src) {
-  const calls = findSntCalls(src);
-  return calls.every((s) => s.blocks[0] && src.slice(s.blocks[0].innerStart, s.blocks[0].innerEnd).trim());
-}
-
-const notInSnt = splitSnt("一段#nt[甲]普通文字", 2, 2);
+const notInSnt = splitSnt("一段#nt[甲]普通文字", [2]);
 assert("非 #snt 拒绝拆分", !notInSnt.ok);
 
 const notesSplitAt = sample.indexOf("[指周代宋国人]") + 3;
-const splitFromNotes = splitSnt(sample, notesSplitAt, notesSplitAt);
-assert("从 notes 项拆分成功", splitFromNotes.ok, splitFromNotes.error);
-if (splitFromNotes.ok) {
-  const two = findSntCalls(splitFromNotes.newText);
-  assert("从 notes 拆成两句", two.length === 2, two.length);
-  assert(
-    "光标所在 notes 项归左句",
-    two[0].notes &&
-      two[1].notes &&
-      two[0].notes.items.length === 1 &&
-      two[1].notes.items.length === 2,
-    two[0].notes && two[1].notes && [two[0].notes.items.length, two[1].notes.items.length],
-  );
-  assert("从 notes 拆分后计数对齐", diagnoseDocument(splitFromNotes.newText).length === 0);
-}
+const splitFromNotes = splitSnt(sample, [notesSplitAt, splitAt, yiSplitAt]);
+assert("notes 里的光标被拒绝", !splitFromNotes.ok, splitFromNotes.error);
 
-const yiComma = sample.indexOf("，田里");
-const splitFromYi = splitSnt(sample, yiComma, yiComma);
-assert("从译文逗号拆分成功", splitFromYi.ok, splitFromYi.error);
-if (splitFromYi.ok) {
-  assert("从译文拆分后计数对齐", diagnoseDocument(splitFromYi.newText).length === 0, JSON.stringify(diagnoseDocument(splitFromYi.newText)));
-  const two = findSntCalls(splitFromYi.newText);
-  assert("从译文也拆成两句", two.length === 2, two.length);
-}
+const splitFromYi = splitSnt(sample, [yiSplitAt]);
+assert(
+  "只有译文光标则拒绝",
+  !splitFromYi.ok && splitFromYi.error.includes("相同数量"),
+  splitFromYi.error,
+);
 
 const yinPos = sample.indexOf("tián");
-const splitFromYin = splitSnt(sample, yinPos, yinPos);
-assert("从拼音拆分成功", splitFromYin.ok, splitFromYin.error);
-if (splitFromYin.ok) {
-  assert("从拼音拆分后计数对齐", diagnoseDocument(splitFromYin.newText).length === 0, JSON.stringify(diagnoseDocument(splitFromYin.newText)));
+const splitFromYin = splitSnt(sample, [yinPos, splitAt, yiSplitAt]);
+assert("拼音里的光标被拒绝", !splitFromYin.ok, splitFromYin.error);
+
+const mismatch = splitSnt(sample, [splitAt, sample.indexOf("田中"), yiSplitAt]);
+assert(
+  "正文译文光标数量不同则拒绝",
+  !mismatch.ok && mismatch.error.includes("相同数量"),
+  mismatch.error,
+);
+
+const multi = splitSnt(sample, [
+  sample.indexOf("#ntj[有耕者]"),
+  splitAt,
+  sample.indexOf("#ntj[有个耕田的人]"),
+  yiSplitAt,
+]);
+assert("两处光标拆成三句", multi.ok, multi.error);
+if (multi.ok) {
+  const three = findSntCalls(multi.newText);
+  assert("拆成三个 #snt", three.length === 3, three.length);
+  assert(
+    "三句 notes 各 1 条",
+    three.every((s) => s.notes && s.notes.items.length === 1),
+    three.map((s) => s.notes && s.notes.items.length),
+  );
+  assert("三句拆分后计数对齐", diagnoseDocument(multi.newText).length === 0, JSON.stringify(diagnoseDocument(multi.newText)));
 }
+
+const line = `#snt[甲，乙。][译甲，译乙。]`;
+const lineSplit = splitSnt(line, [line.indexOf("，") + 1, line.indexOf("译甲，") + 3]);
+assert("单行两边各一光标可拆", lineSplit.ok && findSntCalls(lineSplit.newText).length === 2, lineSplit.error);
+if (lineSplit.ok) {
+  const two = findSntCalls(lineSplit.newText);
+  const leftYi = lineSplit.newText.slice(two[0].blocks[1].innerStart, two[0].blocks[1].innerEnd);
+  const rightYi = lineSplit.newText.slice(two[1].blocks[1].innerStart, two[1].blocks[1].innerEnd);
+  assert("单行译文按光标切开", leftYi.includes("译甲") && !leftYi.includes("译乙") && rightYi.includes("译乙"), [leftYi, rightYi]);
+}
+
+const onlyWen = `#snt[甲，乙。]`;
+const onlySplit = splitSnt(onlyWen, [onlyWen.indexOf("，") + 1]);
+assert("没有译文时只按正文光标拆", onlySplit.ok && findSntCalls(onlySplit.newText).length === 2, onlySplit.error);
 
 const noNotes = `#snt[
   曰：‘吾马良。’
@@ -335,8 +356,11 @@ const noNotes = `#snt[
   chén yuē mǎ suī liáng
 ]
 `;
-const splitPlain = splitSnt(noNotes, noNotes.indexOf("吾马"), noNotes.indexOf("吾马"));
+const splitPlain = splitSnt(noNotes, [noNotes.indexOf("吾马"), noNotes.indexOf("我的马")]);
 assert("无 notes 的 #snt 可拆", splitPlain.ok, splitPlain.error);
+
+const cross = splitSnt(noNotes, [noNotes.indexOf("吾马"), noNotes.indexOf("楚国")]);
+assert("光标不在同一个 #snt 则拒绝", !cross.ok && cross.error.includes("同一个"), cross.error);
 
 // —— 合并 ——
 const twoSnt = `#snt(notes: (
@@ -427,8 +451,16 @@ if (realSnts.length >= 2) {
       assert("样张合并后无新的计数错误", diags.length === 0, JSON.stringify(diags));
     }
     const comma = midSample.indexOf("，", a.blocks[0].innerStart);
-    if (comma > a.blocks[0].innerStart && comma < a.blocks[0].innerEnd) {
-      const sp = splitSnt(midSample, comma + 1, comma + 1);
+    const yiBlock = a.blocks[1];
+    const yiComma = yiBlock ? midSample.indexOf("，", yiBlock.innerStart) : -1;
+    if (
+      comma > a.blocks[0].innerStart &&
+      comma < a.blocks[0].innerEnd &&
+      yiBlock &&
+      yiComma > yiBlock.innerStart &&
+      yiComma < yiBlock.innerEnd
+    ) {
+      const sp = splitSnt(midSample, [comma + 1, yiComma + 1]);
       assert("样张首句逗号后可拆", sp.ok, sp.error);
       if (sp.ok) {
         assert(

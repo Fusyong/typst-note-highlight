@@ -1,14 +1,14 @@
-/// 选择题（#xt）
+/// 选择题（#xzt）
 ///
 /// 用法：
 /// ```
-/// #xt[
+/// #xzt[
 ///   兔*走*触株
 ///   - 慢慢地走
 ///   + 奔跑
 ///   - 蹦跳
 /// ]
-/// #xt(cols: 1)[
+/// #xzt(cols: 1)[
 ///   加点字意思不同一项是
 ///   + *走*马观花
 ///   - 飞沙*走*石
@@ -85,8 +85,7 @@
     columns: (marker-width, 1fr),
     column-gutter: 0.15em,
     align: (right + top, left + top),
-    marker,
-    body,
+    marker, body,
   )
 }
 
@@ -114,8 +113,7 @@
       columns: (1.6em, auto),
       column-gutter: 0.15em,
       align: (right + top, left + top),
-      numbering("A. ", i + 1),
-      body,
+      numbering("A. ", i + 1), body,
     ))
   }).width
 }
@@ -170,7 +168,7 @@
   let letters = _xt-answer-letters(answers)
   let multi = answers.len() >= 2
   [
-    （ #text(fill: answer-fill, letters) ）#if multi {[（多选）]}
+    （ #text(fill: answer-fill, letters) ）#if multi { [（多选）] }
   ]
 }
 
@@ -181,8 +179,7 @@
     columns: (1fr, auto),
     column-gutter: 0.6em,
     align: (left + horizon, right + horizon),
-    stem,
-    blank,
+    stem, blank,
   )
 }
 
@@ -190,7 +187,7 @@
 /// - cols：列数；`auto`（默认）尽量多列同行；`1` 分行；`≥2` 等宽分栏
 /// - answer-fill：括号内答案色（`auto`＝练习题隐藏/调试色；见 #exercise-debug）
 /// - col-gutter / row-gutter：列 / 行间距
-#let xt(
+#let xzt(
   cols: auto,
   answer-fill: auto,
   col-gutter: 1.2em,

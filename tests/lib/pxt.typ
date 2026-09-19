@@ -1,8 +1,8 @@
-/// 排序题（#px）
+/// 排序题（#pxt）
 ///
 /// 用法：
 /// ```
-/// #px[
+/// #pxt[
 ///   因释其耒而守株
 ///   + 于是
 ///   + 放下
@@ -114,16 +114,14 @@
       columns: (auto, auto),
       column-gutter: 0.15em,
       align: (right + horizon, left + horizon),
-      marker,
-      body,
+      marker, body,
     )
   } else {
     grid(
       columns: (marker-width, 1fr),
       column-gutter: 0.15em,
       align: (right + top, left + top),
-      marker,
-      body,
+      marker, body,
     )
   }
 }
@@ -226,7 +224,7 @@
 /// - seed：乱序种子，默认 123；书写顺序为正解
 /// - cols：`auto` 自然宽多行换行；`1` 分行；`≥2` 等宽分栏
 /// - answer-fill：括号内正确序号色（`auto`＝练习题隐藏/调试色；见 #exercise-debug）
-#let px(
+#let pxt(
   seed: 123,
   cols: auto,
   answer-fill: auto,
